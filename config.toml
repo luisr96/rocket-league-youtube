@@ -1,0 +1,25 @@
+[search]
+pro = true
+playlists = ["ranked-duels", "ranked-doubles", "ranked-standard"]
+min_rank = "supersonic-legend"
+max_rank = "supersonic-legend"
+sort_by = "replay-date"       # replay-date | upload-date
+count_per_player = 50         # replays fetched per player (1-200)
+pick_list_size = 10
+
+[api]
+base_url = "https://ballchasing.com/api"
+min_delay_seconds = 1.0       # polite delay between API calls
+max_retries = 3
+
+[paths]
+history_file = "history.json"
+players_file = "players.txt"
+log_dir = "logs"
+# "auto" = <Windows Documents folder>\My Games\Rocket League\TAGame\Demos,
+# which follows OneDrive redirection. Or put a full path in single quotes.
+demos_dir = "auto"
+output_dir = '%USERPROFILE%\Videos\RocketLeague'
+
+[recording]
+buffer_seconds = 30

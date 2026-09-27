@@ -1,0 +1,3 @@
+# One ballchasing player name per line. Order = camera priority.
+zen
+nwpo
