@@ -21,6 +21,49 @@ def _running(image: str) -> bool:
     return image.lower() in out.lower()
 
 
+def _game_window() -> int:
+    """Handle of Rocket League's main window, or 0 if there is none."""
+    user32 = ctypes.windll.user32
+    found = []
+
+    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    def check(hwnd, _):
+        buf = ctypes.create_unicode_buffer(256)
+        user32.GetWindowTextW(hwnd, buf, 256)
+        if buf.value.startswith("Rocket League") and user32.IsWindowVisible(hwnd):
+            found.append(hwnd)
+            return False
+        return True
+
+    user32.EnumWindows(check, 0)
+    return found[0] if found else 0
+
+
+def bring_to_front(only_if_minimized: bool = False) -> bool:
+    """Restore the game window if minimized and put it in front. Returns True if it had to act.
+
+    A full-screen game minimizes itself when another window takes focus, and
+    OBS then captures black. With only_if_minimized, a game that is merely not
+    in front (e.g. windowed, while you use another app) is left alone.
+    """
+    user32 = ctypes.windll.user32
+    hwnd = _game_window()
+    if not hwnd:
+        return False
+    minimized = bool(user32.IsIconic(hwnd))
+    if not minimized and (only_if_minimized or user32.GetForegroundWindow() == hwnd):
+        return False
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+    # Windows only lets the app with the last input take the foreground; a
+    # synthetic Alt press counts as input, so SetForegroundWindow is allowed.
+    user32.keybd_event(0x12, 0, 0, 0)
+    user32.keybd_event(0x12, 0, 2, 0)  # KEYEVENTF_KEYUP
+    user32.SetForegroundWindow(hwnd)
+    log.info("brought the game window to the front")
+    return True
+
+
 def close_game() -> None:
     """Force-close Rocket League after a run (OBS and BakkesMod are left running)."""
     if _running("RocketLeague.exe"):
@@ -155,6 +198,9 @@ def wait_for_end(max_seconds: float) -> str:
     last_fresh = time.monotonic()
     while time.monotonic() < deadline:
         time.sleep(0.5)
+        if bring_to_front(only_if_minimized=True):
+            log.warning("the game window was minimized during recording (black video); restored it")
+            print("  The game window was minimized; restored it (that part of the video may be black).")
         s = read_status()
         if not s or time.time() - s.get("time", 0) > 3:
             if time.monotonic() - last_fresh > 15:

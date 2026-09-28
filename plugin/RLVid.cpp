@@ -42,6 +42,10 @@ private:
     void Enforce();
     void UpdateKickoff();
     void LogCameraChange(ReplayViewerDataWrapper& viewer);
+    void Settle(ReplayViewerDataWrapper& viewer);
+    CarWrapper TargetCar();
+    std::string ViewTargetName();
+    std::string DirectorCarName();
     std::string ResolveTarget();
     void Info();
     void Release();
@@ -60,8 +64,15 @@ private:
     bool holdAtStart_ = false;   // pause on the first frame until rlvid_release
     float kickoffSeconds_ = 0;   // >0: Director camera on kickoffs until this long after the first touch
     bool inKickoff_ = false;
+    bool kickoffKeepFocus_ = false;  // rlvid_kickoff_keep_focus 1: keep the target focused during the kickoff Director
     bool wasKickoff_ = false;
     int releaseFrame_ = -1;
+    int settleTicks_ = 0;        // >0: just switched to Player View; check the car actually shown each tick
+    int settleTick_ = 0;         // ticks since that switch (for the log)
+    int settleNextFix_ = 0;      // settleTick_ at which the next re-apply is allowed
+    int settleFixes_ = 0;        // re-applies needed after switches (status file)
+    std::string lastSettleLog_;
+    std::string lastDirectorView_ = "-";
     std::string lastLoggedMode_, lastLoggedName_;        // times the view had to be put back after locking
     std::string lastEvent_ = "loaded";
     std::chrono::steady_clock::time_point lastWrite_{};
@@ -72,6 +83,8 @@ BAKKESMOD_PLUGIN(RLVid, "RLVid replay recorder helper", "1.1", PLUGINTYPE_REPLAY
 static const char* kTickEvent = "Function Engine.GameViewportClient.Tick";
 static const char* kCameraMode = "PlayerView";
 static const char* kDirectorMode = "Camera_Director";
+static const int kSettleTicks = 90;     // ~1.5 s at 60 fps: how long to watch the car shown after a switch
+static const int kSettleFixEvery = 5;   // ticks between re-applies while the wrong car is shown
 
 // Lowercase ASCII letters and digits only, so "µµµµµZen" matches "Zen".
 static std::string NameKey(const std::string& s)
@@ -107,6 +120,12 @@ void RLVid::onLoad()
     cvarManager->registerNotifier("rlvid_release", [this](std::vector<std::string>) {
         Release();
     }, "Resume a replay held on its first frame by rlvid_play ... hold", PERMISSION_ALL);
+
+    cvarManager->registerCvar("rlvid_kickoff_keep_focus", "0",
+        "1: keep the target focused during the kickoff Director shot (no re-targeting when it ends)",
+        true, true, 0, true, 1).addOnValueChanged([this](std::string, CVarWrapper cvar) {
+        kickoffKeepFocus_ = cvar.getBoolValue();
+    });
 
     cvarManager->registerNotifier("rlvid_info", [this](std::vector<std::string>) {
         Info();
@@ -156,6 +175,7 @@ void RLVid::Play(const std::string& path, const std::string& target, float kicko
     holdAtStart_ = hold;
     inKickoff_ = wasKickoff_ = false;
     releaseFrame_ = -1;
+    settleTicks_ = settleFixes_ = 0;
     lastEvent_ = "play_requested";
     cvarManager->log("rlvid_play: " + path + " target " + target);
     rm.PlayReplayFile(path);
@@ -220,22 +240,54 @@ void RLVid::Enforce()
         if (focusId_.empty()) return;  // players not replicated yet; try next frame
     }
     UpdateKickoff();
-    bool changed = false;
+    bool changed = false, deliberate = false;
     if (inKickoff_) {
         // Clear the focus too: with the target still focused, the game treats the
         // Director shot as "watching the target" (their boost meter shown, their
         // nameplate hidden) even while it shows other cars. Clearing the focus
         // switches the game to Fly, so set the Director again in the same tick
         // (before anything is rendered).
-        if (!viewer.GetFocusActorString().empty()) { viewer.SetFocusActorString(""); changed = true; }
+        // (Unless rlvid_kickoff_keep_focus is set: then the target stays focused.)
+        std::string kickoffFocus = kickoffKeepFocus_ ? focusId_ : "";
+        if (viewer.GetFocusActorString() != kickoffFocus) { viewer.SetFocusActorString(kickoffFocus); changed = true; }
         if (viewer.GetCameraMode() != kDirectorMode) { viewer.SetCameraMode(kDirectorMode); changed = true; }
-    } else {
-        // Focus before mode: Player View is disabled while nothing is focused.
-        if (viewer.GetFocusActorString() != focusId_) { viewer.SetFocusActorString(focusId_); changed = true; }
-        if (viewer.GetCameraMode() != kCameraMode) { viewer.SetCameraMode(kCameraMode); changed = true; }
+    } else if (viewer.GetCameraMode() != kCameraMode) {
+        // Leaving the Director (kickoff over, or first lock): target first, and
+        // switch to Player View only on the next tick. Switching in the same tick
+        // made Player View start from the car the Director was showing and pass
+        // through other players, with the boost meter left on one of them.
+        if (viewer.GetFocusActorString() != focusId_) {
+            viewer.SetFocusActorString(focusId_);
+            if (viewer.GetCameraMode() != kDirectorMode) viewer.SetCameraMode(kDirectorMode);  // focus change may switch it to Fly
+            auto server = gameWrapper->GetGameEventAsReplay();
+            auto director = server ? server.GetReplayDirector() : ReplayDirectorWrapper(0);
+            if (director && TargetCar()) director.SetFocusCar(TargetCar());
+        } else {
+            viewer.SetCameraMode(kCameraMode);
+            settleTicks_ = kSettleTicks;
+            settleTick_ = settleNextFix_ = 0;
+            lastSettleLog_.clear();
+        }
+        changed = deliberate = true;
+    } else if (viewer.GetFocusActorString() != focusId_) {
+        viewer.SetFocusActorString(focusId_);
+        changed = true;
     }
 
     LogCameraChange(viewer);
+    if (!inKickoff_ && settleTicks_ > 0) Settle(viewer);
+    if (inKickoff_) {
+        // Diagnostics: does the camera's view target name the car the Director shows?
+        std::string view = ViewTargetName();
+        if (view != lastDirectorView_) {
+            lastDirectorView_ = view;
+            auto server = gameWrapper->GetGameEventAsReplay();
+            cvarManager->log("rlvid director: frame " + std::to_string(server ? server.GetCurrentReplayFrame() : -1)
+                             + " view '" + view + "'");
+        }
+    } else {
+        lastDirectorView_ = "-";
+    }
 
     // Switches we make on purpose (kickoff <-> player) are not corrections.
     bool phaseSwitched = inKickoff_ != wasKickoff_;
@@ -245,7 +297,7 @@ void RLVid::Enforce()
         lastEvent_ = "focused";
         cvarManager->log("rlvid: camera locked on " + focusId_ + " (" + FocusedName() + ")"
                          + (inKickoff_ ? ", starting with kickoff director" : ""));
-    } else if (changed && locked_ && !phaseSwitched) {
+    } else if (changed && locked_ && !phaseSwitched && !deliberate) {
         ++corrections_;
     }
 }
@@ -303,6 +355,78 @@ std::string RLVid::FocusedName()
     auto pri = car.GetPRI();
     if (!pri) return "";
     return pri.GetPlayerName().ToString();
+}
+
+CarWrapper RLVid::TargetCar()
+{
+    auto server = gameWrapper->GetGameEventAsReplay();
+    if (!server || focusId_.empty()) return CarWrapper(0);
+    auto cars = server.GetCars();
+    for (int i = 0; i < cars.Count(); ++i) {
+        auto car = cars.Get(i);
+        if (!car) continue;
+        auto pri = car.GetPRI();
+        if (pri && "Player_" + pri.GetUniqueIdWrapper().GetIdString() == focusId_) return car;
+    }
+    return CarWrapper(0);
+}
+
+// Player the camera is actually rendering (may differ from the focus setting).
+std::string RLVid::ViewTargetName()
+{
+    auto cam = gameWrapper->GetCamera();
+    if (!cam) return "";
+    auto vt = cam.GetViewTarget();
+    if (!vt.PRI) return "";
+    PriWrapper pri((std::uintptr_t)vt.PRI);
+    return pri ? pri.GetPlayerName().ToString() : "";
+}
+
+std::string RLVid::DirectorCarName()
+{
+    auto server = gameWrapper->GetGameEventAsReplay();
+    auto director = server ? server.GetReplayDirector() : ReplayDirectorWrapper(0);
+    if (!director) return "";
+    CarWrapper car(director.GetFocusCar().memory_address);
+    if (!car) return "";
+    auto pri = car.GetPRI();
+    return pri ? pri.GetPlayerName().ToString() : "";
+}
+
+// For a short while after switching to Player View, check every tick which
+// car is really shown (camera view target) and whose HUD/boost meter is up
+// (HUD focus car), logging each change. If either is not the target, re-apply
+// the target: set the focus again, point the Director at the target car, and
+// if that is not enough, clear and re-set the focus and mode in one tick (so
+// nothing in between is rendered).
+void RLVid::Settle(ReplayViewerDataWrapper& viewer)
+{
+    --settleTicks_;
+    ++settleTick_;
+    auto server = gameWrapper->GetGameEventAsReplay();
+    auto target = TargetCar();
+    std::string want = target && target.GetPRI() ? target.GetPRI().GetPlayerName().ToString() : "";
+    std::string hud = FocusedName(), view = ViewTargetName(), director = DirectorCarName();
+
+    std::string line = "hud '" + hud + "' view '" + view + "' director '" + director + "'";
+    if (line != lastSettleLog_) {
+        lastSettleLog_ = line;
+        cvarManager->log("rlvid settle: tick " + std::to_string(settleTick_) + " frame "
+                         + std::to_string(server ? server.GetCurrentReplayFrame() : -1) + " " + line);
+    }
+    if (want.empty() || (hud == want && view == want) || settleTick_ < settleNextFix_) return;
+
+    // Harder re-apply from the second attempt on: clear first so the game
+    // rebinds the HUD, then target and Player View again, all before rendering.
+    bool hard = settleNextFix_ > 0;
+    if (hard) viewer.SetFocusActorString("");
+    viewer.SetFocusActorString(focusId_);
+    viewer.SetCameraMode(kCameraMode);
+    auto dir = server ? server.GetReplayDirector() : ReplayDirectorWrapper(0);
+    if (dir) dir.SetFocusCar(target);
+    ++settleFixes_;
+    settleNextFix_ = settleTick_ + kSettleFixEvery;
+    cvarManager->log(std::string("rlvid settle: wrong car shown, re-applied target") + (hard ? " (clear + set)" : ""));
 }
 
 // Resumes a replay that rlvid_play held on its first frame.
@@ -388,6 +512,7 @@ void RLVid::WriteStatus()
        << ", \"camera_mode\": \"" << JsonEscape(cameraMode) << "\""
        << ", \"locked\": " << (locked_ ? "true" : "false")
        << ", \"corrections\": " << corrections_
+       << ", \"settle_fixes\": " << settleFixes_
        << ", \"paused\": " << (inReplay && Viewer() && Viewer().GetbPausedForScrub() ? "true" : "false")
        << ", \"target_boost\": " << targetBoost
        << ", \"target_boost_replicated\": " << targetBoostReplicated

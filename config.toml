@@ -26,6 +26,10 @@ output_dir = '%USERPROFILE%\Videos\RocketLeague'
 # > 0: switch to the Director camera for each kickoff, returning to Player View
 # this many seconds after the ball is first touched. 0 = Player View throughout.
 kickoff_director_seconds = 2
+# true: keep the target focused during the kickoff Director shot (their boost
+# meter shows, their name tag is hidden). false: focus is cleared and set again
+# when Player View returns.
+kickoff_keep_focus = true
 
 [pairs]
 # Each video is 2 games of the same player in the same playlist, at most this
@@ -35,6 +39,9 @@ max_gap_days = 3
 [recording]
 # Fallback: if the end of a game isn't detected, stop after its length plus this.
 buffer_seconds = 30
+# Debugging: > 0 records only this many seconds of each game, adds "_debug" to
+# the file name and does not mark the games as done (so they can be re-run).
+debug_seconds = 0
 
 [obs]
 # OBS WebSocket server (Tools > WebSocket Server Settings). Password goes in .env
@@ -48,6 +55,16 @@ exe = 'C:\Program Files\obs-studio\bin\64bit\obs64.exe'
 # if missing) and back. Set transition_ms = 0 for a hard cut.
 transition_scene = "RLVid Black"
 transition_ms = 800
+
+[overlay]
+# Player names shown at the start of each game (blue left, orange right), as an
+# OBS Browser Source added on top of the game scene (created if missing).
+enabled = true
+source = "RLVid Names"
+style = "band"            # band (dimmed strip), outline, or shadow
+hold_seconds = 4          # fully visible for this long
+fade_out_seconds = 2      # then fades out over this long
+fade_in_seconds = 0       # 0 = appears at once
 
 [game]
 # Epic launch link for Rocket League. Set "-noeac" in the Epic launcher's

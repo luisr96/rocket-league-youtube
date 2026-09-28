@@ -40,7 +40,9 @@ def ensure_running(exe: str) -> None:
     # A normal window (not the tray) so it is visible that OBS is running. OBS
     # starts before the game, so it can't take focus away from it. OBS must be
     # started from its own folder or it fails to find its data files.
-    subprocess.Popen([str(path), "--disable-updater"], cwd=path.parent)
+    # --disable-shutdown-check: after a crash, start normally instead of asking
+    # whether to use Safe Mode (a dialog nobody is there to answer).
+    subprocess.Popen([str(path), "--disable-updater", "--disable-shutdown-check"], cwd=path.parent)
 
 
 def connect(host: str, port: int, exe: str, timeout: float = 60) -> "Recorder":
@@ -89,6 +91,36 @@ class Recorder:
             time.sleep(1)
         raise ObsError(f"OBS source {source!r} stayed black for {timeout:.0f}s; "
                        f"is Game Capture hooking Rocket League?")
+
+    def setup_overlay(self, source: str, url: str) -> None:
+        """Put the Browser Source `source` on top of the current scene, showing `url` (no names).
+
+        The source is created the first time. The overlay page is 1920x1080; it is
+        scaled to the OBS canvas if that is a different size.
+        """
+        try:
+            scene = self.client.get_current_program_scene().current_program_scene_name
+            if source not in [i["inputName"] for i in self.client.get_input_list().inputs]:
+                self.client.create_input(scene, source, "browser_source",
+                                         {"url": url, "width": 1920, "height": 1080}, True)
+                log.info("created OBS browser source %r in scene %r", source, scene)
+            else:
+                self.client.set_input_settings(source, {"url": url, "width": 1920, "height": 1080}, True)
+                if source not in [i["sourceName"] for i in self.client.get_scene_item_list(scene).scene_items]:
+                    self.client.create_scene_item(scene, source, True)
+            item = self.client.get_scene_item_id(scene, source).scene_item_id
+            count = len(self.client.get_scene_item_list(scene).scene_items)
+            self.client.set_scene_item_index(scene, item, count - 1)  # on top of the game
+            self.client.set_scene_item_enabled(scene, item, True)
+            base = self.client.get_video_settings().base_width
+            self.client.set_scene_item_transform(scene, item, {"positionX": 0, "positionY": 0,
+                                                               "scaleX": base / 1920, "scaleY": base / 1920})
+        except Exception as e:
+            raise ObsError(f"cannot set up the names overlay {source!r}: {e}") from e
+
+    def show_overlay(self, source: str, url: str) -> None:
+        """Load `url` into the overlay; the page shows the names and fades them out by itself."""
+        self.client.set_input_settings(source, {"url": url}, True)
 
     def fade_out(self, black_scene: str, ms: int) -> None:
         """Fade the program output to an empty (black) scene, remembering the current scene."""

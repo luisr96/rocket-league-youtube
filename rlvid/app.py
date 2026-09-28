@@ -6,7 +6,7 @@ import time
 from datetime import date, datetime
 from pathlib import Path
 
-from . import game, obs, video
+from . import game, obs, overlay, video
 from .api import ApiError, Ballchasing
 from .bakkes import BakkesError
 from .config import ConfigError, load_config
@@ -44,7 +44,7 @@ def print_pairs(pairs: list[Pair]) -> None:
               f"{p.first.score + ' ' + p.second.score:9}  {p.first.length + ' ' + p.second.length:11}  {opp}")
 
 
-def video_path(cfg, pair: Pair) -> Path:
+def video_path(cfg, pair: Pair, suffix: str = "") -> Path:
     """<output_dir>/<today>_<player>_<mode>_<first game date>_<gap>_<teammates>_<opponents>.mp4,
     with _2, _3, ... if that name is taken.
 
@@ -58,7 +58,7 @@ def video_path(cfg, pair: Pair) -> Path:
     if any(pair.teammates):
         parts.append(_fmt_groups(pair.teammates))
     parts.append(_fmt_groups(pair.opponents))
-    stem = "_".join(parts)
+    stem = "_".join(parts) + suffix
     path, n = out_dir / f"{stem}.mp4", 2
     while path.exists():
         path, n = out_dir / f"{stem}_{n}.mp4", n + 1
@@ -99,8 +99,13 @@ def process(pair: Pair, cfg, api, history) -> bool:
     recorder = obs.connect(o["host"], o["port"], o["exe"])  # OBS first, so it can't steal focus from the game
     kickoff = cfg.raw.get("camera", {}).get("kickoff_director_seconds", 0)
     buffer = cfg.raw["recording"]["buffer_seconds"]
+    debug = cfg.raw["recording"].get("debug_seconds", 0)
     fade_ms = o.get("transition_ms", 0)
+    ov = cfg.raw.get("overlay", {})
+    if ov.get("enabled", True):
+        recorder.setup_overlay(ov["source"], overlay.url(ov))
     rcon = game.ensure_game(g)
+    rcon.send(f"rlvid_kickoff_keep_focus {int(bool(cfg.raw.get('camera', {}).get('kickoff_keep_focus', False)))}")
     try:
         for i, (m, replay) in enumerate(zip(pair.matches, replays), 1):
             print(f"Game {i}/2: playing {m.score} ({m.length}), camera on {m.camera_player} ...")
@@ -108,6 +113,7 @@ def process(pair: Pair, cfg, api, history) -> bool:
             # recording runs, so the video starts at the kickoff countdown.
             game.start_replay(rcon, replay, m.camera_focus_id or m.camera_player,
                               g["replay_start_timeout_seconds"], kickoff, hold=True)
+            game.bring_to_front()  # a minimized full-screen game records as black
             if i == 1:
                 # No black video after a fresh game launch. Not for game 2: the
                 # black scene is showing then, so the capture reads black anyway.
@@ -118,10 +124,14 @@ def process(pair: Pair, cfg, api, history) -> bool:
                 if fade_ms:
                     time.sleep(0.3)  # a moment of black between the games
                     recorder.fade_in(fade_ms)  # onto the held kickoff frame
+            if ov.get("enabled", True):
+                recorder.show_overlay(ov["source"], overlay.url(ov, m))  # fades out by itself
             time.sleep(0.5)
             game.release(rcon)
-            reason = game.wait_for_end(m.duration + buffer)
-            if reason == "timeout":
+            if debug:
+                print(f"  debug: recording only {debug:g}s of this game")
+                game.wait_for_end(debug)
+            elif game.wait_for_end(m.duration + buffer) == "timeout":
                 log.warning("game %d did not report its end; stopped after duration + %ds buffer", i, buffer)
             if i == 1:
                 if fade_ms:
@@ -134,10 +144,15 @@ def process(pair: Pair, cfg, api, history) -> bool:
     finally:
         rcon.close()
 
-    final = video_path(cfg, pair)
+    final = video_path(cfg, pair, suffix="_debug" if debug else "")
     print("Finalizing video ...")
     video.finalize(ffmpeg, raw, final)
     print(f"Saved video: {final}")
+    if debug:
+        print("Debug run: games not marked as done.")
+        log.info("debug run done: %s", final)
+        game.close_game()
+        return True
     today = date.today().isoformat()
     for m in pair.matches:
         history.add({

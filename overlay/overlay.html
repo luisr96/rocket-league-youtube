@@ -1,0 +1,98 @@
+<!doctype html>
+<!--
+  Team-names overlay shown at the start of each game (an OBS Browser Source, 1920x1080).
+
+  Query parameters (repeat blue/orange once per player, in display order):
+    blue=Alpha&blue=Bravo&orange=Charlie&orange=Delta
+    style=band|outline|shadow   how the white text stays readable (default band)
+    hold=4                      seconds fully visible before the fade-out starts
+    fade=2                      fade-out length in seconds
+    fadein=0                    fade-in length in seconds (0 = appears at once)
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body {
+    margin: 0; width: 1920px; height: 1080px; overflow: hidden;
+    background: transparent;
+    font-family: "Segoe UI", Arial, sans-serif; font-weight: 800;
+  }
+  #root { position: absolute; inset: 0; display: flex; opacity: 0; }
+  .half {
+    width: 50%; height: 100%; box-sizing: border-box; padding: 0 80px;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+  }
+  .name {
+    color: #fff; font-size: 96px; line-height: 1.25; white-space: nowrap;
+  }
+
+  .outline .name {
+    -webkit-text-stroke: 6px #000; paint-order: stroke fill;
+  }
+  .shadow .name {
+    text-shadow: 0 4px 6px rgba(0,0,0,.9), 0 0 24px rgba(0,0,0,.8), 0 0 48px rgba(0,0,0,.6);
+  }
+  #band { position: absolute; left: 0; right: 0; background: rgba(0,0,0,.55); display: none; opacity: 0; }
+  .band #band { display: block; }
+</style>
+</head>
+<body>
+<div id="band"></div>
+<div id="root">
+  <div class="half" id="blue"></div>
+  <div class="half" id="orange"></div>
+</div>
+<script>
+  const q = new URLSearchParams(location.search);
+  const num = (k, d) => (q.has(k) && !isNaN(parseFloat(q.get(k)))) ? parseFloat(q.get(k)) : d;
+  const hold = num("hold", 4), fade = num("fade", 2), fadein = num("fadein", 0);
+  const style = ["outline", "shadow", "band"].includes(q.get("style")) ? q.get("style") : "band";
+  document.body.className = style;
+
+  for (const side of ["blue", "orange"]) {
+    const col = document.getElementById(side);
+    for (const n of q.getAll(side)) {
+      const el = document.createElement("div");
+      el.className = "name";
+      el.textContent = n;
+      col.appendChild(el);
+    }
+  }
+
+  // Shrink only the names that are wider than their half (minus padding).
+  const fit = () => {
+    for (const el of document.querySelectorAll(".name")) {
+      const max = el.parentElement.clientWidth - 160;
+      let size = 96;
+      el.style.fontSize = size + "px";
+      while (el.scrollWidth > max && size > 20) el.style.fontSize = --size + "px";
+    }
+    // The band spans the full width, just covering the taller column.
+    const cols = [...document.querySelectorAll(".half")].map(c => {
+      const names = c.querySelectorAll(".name");
+      if (!names.length) return null;
+      return [names[0].getBoundingClientRect().top, names[names.length - 1].getBoundingClientRect().bottom];
+    }).filter(Boolean);
+    if (cols.length) {
+      const band = document.getElementById("band");
+      const top = Math.min(...cols.map(c => c[0])) - 40, bottom = Math.max(...cols.map(c => c[1])) + 40;
+      band.style.top = top + "px";
+      band.style.height = (bottom - top) + "px";
+    }
+  };
+
+  const show = () => {
+    fit();
+    const root = document.getElementById("root"), band = document.getElementById("band");
+    const anim = (el) => el.animate(
+      [{opacity: fadein ? 0 : 1}, {opacity: 1, offset: (fadein / (fadein + hold + fade)) || 0},
+       {opacity: 1, offset: (fadein + hold) / (fadein + hold + fade)}, {opacity: 0}],
+      {duration: (fadein + hold + fade) * 1000, fill: "forwards"});
+    anim(root);
+    anim(band);
+  };
+  (document.fonts ? document.fonts.ready : Promise.resolve()).then(show);
+</script>
+</body>
+</html>

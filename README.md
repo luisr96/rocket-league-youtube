@@ -51,7 +51,7 @@ Then, with the game closed:
 
 1. Copy `plugin\build\RLVid.dll` to `%APPDATA%\bakkesmod\bakkesmod\plugins\`.
 2. Add `plugin load rlvid` as a new line in `%APPDATA%\bakkesmod\bakkesmod\cfg\plugins.cfg`.
-3. Add `rlvid_play`, `rlvid_release` and `rlvid_info` as new lines in `%APPDATA%\bakkesmod\bakkesmod\data\rcon_commands.cfg`. This allows the tool to send those commands over rcon.
+3. Add `rlvid_play`, `rlvid_release`, `rlvid_info` and `rlvid_kickoff_keep_focus` as new lines in `%APPDATA%\bakkesmod\bakkesmod\data\rcon_commands.cfg`. This allows the tool to send those commands over rcon.
 
 The tool reads the rcon password from BakkesMod's `cfg\config.cfg`, so you don't need to copy it anywhere.
 
