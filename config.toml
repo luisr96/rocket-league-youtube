@@ -21,5 +21,32 @@ log_dir = "logs"
 demos_dir = "auto"
 output_dir = '%USERPROFILE%\Videos\RocketLeague'
 
+[camera]
+# Camera is locked in Player View on the first players.txt player in the match.
+# > 0: switch to the Director camera for each kickoff, returning to Player View
+# this many seconds after the ball is first touched. 0 = Player View throughout.
+kickoff_director_seconds = 2
+
+[pairs]
+# Each video is 2 games of the same player in the same playlist, at most this
+# many days apart (consecutive games are preferred automatically).
+max_gap_days = 3
+
 [recording]
+# Fallback: if the end of a game isn't detected, stop after its length plus this.
 buffer_seconds = 30
+
+[obs]
+# OBS WebSocket server (Tools > WebSocket Server Settings). Password goes in .env
+# as OBS_WEBSOCKET_PASSWORD.
+host = "localhost"
+port = 4455
+
+[game]
+# Epic launch link for Rocket League. Set "-noeac" in the Epic launcher's
+# Rocket League launch options so BakkesMod can load.
+epic_launch_uri = "com.epicgames.launcher://apps/9773aa1aa54f4f7b80e44bef04986cea%3A530145df28a24424923f5828cc9031a1%3ASugar?action=launch&silent=true"
+bakkesmod_exe = 'C:\Program Files\BakkesMod\BakkesMod.exe'
+launch_timeout_seconds = 180
+menu_settle_seconds = 8      # wait at the main menu before loading a replay
+replay_start_timeout_seconds = 60

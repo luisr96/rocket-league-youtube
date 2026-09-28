@@ -1,12 +1,17 @@
 """Shared run logic for pick.py and auto.py."""
 import logging
+import re
+import shutil
 import sys
 from datetime import date, datetime
+from pathlib import Path
 
+from . import game, obs
 from .api import ApiError, Ballchasing
+from .bakkes import BakkesError
 from .config import ConfigError, load_config
 from .history import History
-from .search import Match, find_unseen
+from .search import Match, Pair, find_pairs, find_unseen
 
 log = logging.getLogger("rlvid")
 
@@ -26,57 +31,128 @@ def setup_logging(log_dir) -> None:
     root.addHandler(sh)
 
 
-def print_table(matches: list[Match]) -> None:
-    print(f"{'#':>2}  {'date':16}  {'playlist':16}  {'score':5}  {'len':5}  {'featured':14}  teams")
-    for i, m in enumerate(matches, 1):
-        teams = f"{', '.join(m.blue_players)}  vs  {', '.join(m.orange_players)}"
-        print(f"{i:>2}  {m.date:%Y-%m-%d %H:%M}  {m.playlist:16}  {m.score:5}  "
-              f"{m.length:5}  {', '.join(m.featured):14}  {teams}")
+def _fmt_gap(p: Pair) -> str:
+    mins = int(p.gap.total_seconds() // 60)
+    return f"{mins}m" if mins < 120 else f"{mins // 60}h" if mins < 48 * 60 else f"{mins // 1440}d"
 
 
-def process(match: Match, cfg, api, history) -> bool:
-    """Download + record. Recording is implemented in later phases."""
-    log.info("selected %s (%s, cam=%s)", match.id, match.score, match.camera_player)
-    print(f"Selected {match.id}  camera on {match.camera_player}")
+def print_pairs(pairs: list[Pair]) -> None:
+    print(f"{'#':>2}  {'player':10}  {'mode':4}  {'first game':16}  {'gap':>4}  {'scores':9}  {'lengths':11}  opponents")
+    for i, p in enumerate(pairs, 1):
+        opp = " | ".join(", ".join(m.orange_players if m.camera_player in m.blue_players else m.blue_players)
+                         for m in p.matches)
+        print(f"{i:>2}  {p.player:10}  {p.mode:4}  {p.first.date:%Y-%m-%d %H:%M}  {_fmt_gap(p):>4}  "
+              f"{p.first.score + ' ' + p.second.score:9}  {p.first.length + ' ' + p.second.length:11}  {opp}")
+
+
+def video_path(cfg, pair: Pair) -> Path:
+    """<output_dir>/YYYY-MM-DD_<player>_<mode>.mp4, with _2, _3, ... if that name is taken."""
+    out_dir = cfg.path("output_dir")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stem = f"{date.today():%Y-%m-%d}_{_safe(pair.player)}_{pair.mode}"
+    path, n = out_dir / f"{stem}.mp4", 2
+    while path.exists():
+        path, n = out_dir / f"{stem}_{n}.mp4", n + 1
+    return path
+
+
+def _safe(name: str) -> str:
+    return re.sub(r'[<>:"/\\|?*\s]+', "-", name).strip("-.") or "player"
+
+
+def download(cfg, api, match: Match) -> Path:
     dest = cfg.path("demos_dir") / f"{match.id}.replay"
     if dest.exists():
-        print(f"Already downloaded: {dest}")
+        log.info("already downloaded: %s", dest)
     else:
-        print("Downloading replay ...")
+        print(f"Downloading replay {match.id} ...")
         api.download_replay(match.id, dest)
-        print(f"Saved to {dest}")
-    print("(Phase 2: recording not implemented yet, nothing marked as done.)")
-    return False
+    return dest
+
+
+def process(pair: Pair, cfg, api, history) -> bool:
+    """Record both games of the pair into one video; mark them done only on success."""
+    log.info("selected pair: %s %s, %s then %s", pair.player, pair.mode, pair.first.id, pair.second.id)
+    print(f"Selected {pair.player} {pair.mode}: {pair.first.id} + {pair.second.id}")
+    o = cfg.raw["obs"]
+    recorder = obs.Recorder(o["host"], o["port"])  # fail fast if OBS is not ready
+    replays = [download(cfg, api, m) for m in pair.matches]
+
+    g = cfg.raw["game"]
+    kickoff = cfg.raw.get("camera", {}).get("kickoff_director_seconds", 0)
+    buffer = cfg.raw["recording"]["buffer_seconds"]
+    rcon = game.ensure_game(g)
+    try:
+        for i, (m, replay) in enumerate(zip(pair.matches, replays), 1):
+            print(f"Game {i}/2: playing {m.score} ({m.length}), camera on {m.camera_player} ...")
+            game.start_replay(rcon, replay, m.camera_focus_id or m.camera_player,
+                              g["replay_start_timeout_seconds"], kickoff)
+            recorder.start() if i == 1 else recorder.resume()
+            reason = game.wait_for_end(m.duration + buffer)
+            if reason == "timeout":
+                log.warning("game %d did not report its end; stopped after duration + %ds buffer", i, buffer)
+            if i == 1:
+                recorder.pause()  # keep the loading screen of game 2 out of the video
+        raw = recorder.stop()
+    except BaseException:
+        recorder.abort()
+        raise
+    finally:
+        rcon.close()
+
+    final = video_path(cfg, pair)
+    shutil.move(str(raw), final)
+    print(f"Saved video: {final}")
+    today = date.today().isoformat()
+    for m in pair.matches:
+        history.add({
+            "id": m.id,
+            "processed_date": today,
+            "game_date": m.date.isoformat(),
+            "player": pair.player,
+            "players": {"blue": m.blue_players, "orange": m.orange_players},
+            "map": m.map,
+            "score": m.score,
+            "playlist": m.playlist,
+            "video": str(final),
+        })
+    log.info("done: %s", final)
+    return True
+
+
+def find_pairs_for(cfg, api, history) -> list[Pair]:
+    matches = find_unseen(api, cfg, history.ids())
+    return find_pairs(matches, cfg.raw["pairs"]["max_gap_days"])
 
 
 def cmd_pick(cfg, api, history) -> int:
     if history.has_entry_for(date.today()):
-        if input("A replay was already processed today. Continue anyway? [y/N] ").strip().lower() != "y":
+        if input("A video was already made today. Continue anyway? [y/N] ").strip().lower() != "y":
             return 0
     print(f"Searching ballchasing for: {', '.join(cfg.players)} ...")
-    matches = find_unseen(api, cfg, history.ids())[: cfg.search["pick_list_size"]]
-    if not matches:
-        print("No unseen matches found.")
+    pairs = find_pairs_for(cfg, api, history)[: cfg.search["pick_list_size"]]
+    if not pairs:
+        print("No unseen pairs of games found.")
         return 0
-    print_table(matches)
-    choice = input("\nNumber to process (empty to quit): ").strip()
+    print_pairs(pairs)
+    choice = input("\nNumber to record (empty to quit): ").strip()
     if not choice:
         return 0
-    if not choice.isdigit() or not 1 <= int(choice) <= len(matches):
+    if not choice.isdigit() or not 1 <= int(choice) <= len(pairs):
         print("Invalid choice.")
         return 1
-    return 0 if process(matches[int(choice) - 1], cfg, api, history) else 1
+    return 0 if process(pairs[int(choice) - 1], cfg, api, history) else 1
 
 
 def cmd_auto(cfg, api, history) -> int:
     if history.has_entry_for(date.today()):
-        log.info("already processed a replay today, exiting")
+        log.info("already made a video today, exiting")
         return 0
-    matches = find_unseen(api, cfg, history.ids())
-    if not matches:
-        log.info("no unseen matches")
+    pairs = find_pairs_for(cfg, api, history)
+    if not pairs:
+        log.info("no unseen pairs of games")
         return 0
-    return 0 if process(matches[0], cfg, api, history) else 1
+    return 0 if process(pairs[0], cfg, api, history) else 1
 
 
 def run(command) -> int:
@@ -94,6 +170,12 @@ def run(command) -> int:
         return command(cfg, api, history)
     except ApiError as e:
         log.error("API error: %s", e)
+        return 1
+    except obs.ObsError as e:
+        log.error("OBS error: %s", e)
+        return 1
+    except (game.GameError, BakkesError) as e:
+        log.error("game error: %s", e)
         return 1
     except Exception:
         log.exception("unexpected failure")
