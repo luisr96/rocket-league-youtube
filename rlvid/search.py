@@ -47,6 +47,16 @@ class Match:
         return MODES.get(self.playlist) or f"{max(len(self.blue_players), len(self.orange_players))}v"             f"{max(len(self.blue_players), len(self.orange_players))}"
 
     @property
+    def teammates(self) -> list[str]:
+        """The camera player's teammates (in-game names), without the camera player."""
+        team = self.blue_players if self.camera_player in self.blue_players else self.orange_players
+        return [p for p in team if p != self.camera_player]
+
+    @property
+    def opponents(self) -> list[str]:
+        return self.orange_players if self.camera_player in self.blue_players else self.blue_players
+
+    @property
     def camera_focus_id(self) -> str | None:
         return self.focus_ids.get(self.camera_player)
 
@@ -161,6 +171,16 @@ class Pair:
     @property
     def gap(self) -> timedelta:
         return self.second.date - self.first.date
+
+    @property
+    def teammates(self) -> list[list[str]]:
+        """Teammates per game (always two groups), alphabetical within each game."""
+        return [sorted(m.teammates, key=str.lower) for m in self.matches]
+
+    @property
+    def opponents(self) -> list[list[str]]:
+        """Opponents per game (always two groups), alphabetical within each game."""
+        return [sorted(m.opponents, key=str.lower) for m in self.matches]
 
 
 def find_pairs(matches: list[Match], max_gap_days: float) -> list[Pair]:

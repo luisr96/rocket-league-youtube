@@ -39,25 +39,38 @@ def _fmt_gap(p: Pair) -> str:
 def print_pairs(pairs: list[Pair]) -> None:
     print(f"{'#':>2}  {'player':10}  {'mode':4}  {'first game':16}  {'gap':>4}  {'scores':9}  {'lengths':11}  opponents")
     for i, p in enumerate(pairs, 1):
-        opp = " | ".join(", ".join(m.orange_players if m.camera_player in m.blue_players else m.blue_players)
-                         for m in p.matches)
+        opp = " | ".join(", ".join(m.opponents) for m in p.matches)
         print(f"{i:>2}  {p.player:10}  {p.mode:4}  {p.first.date:%Y-%m-%d %H:%M}  {_fmt_gap(p):>4}  "
               f"{p.first.score + ' ' + p.second.score:9}  {p.first.length + ' ' + p.second.length:11}  {opp}")
 
 
 def video_path(cfg, pair: Pair) -> Path:
-    """<output_dir>/YYYY-MM-DD_<player>_<mode>.mp4, with _2, _3, ... if that name is taken."""
+    """<output_dir>/<today>_<player>_<mode>_<first game date>_<gap>_<teammates>_<opponents>.mp4,
+    with _2, _3, ... if that name is taken.
+
+    Teammates and opponents are one bracketed group per game, e.g. (A+B)(C+D),
+    even when both games had the same people; the teammates part is left out in 1v1.
+    """
     out_dir = cfg.path("output_dir")
     out_dir.mkdir(parents=True, exist_ok=True)
-    stem = f"{date.today():%Y-%m-%d}_{_safe(pair.player)}_{pair.mode}"
+    parts = [f"{date.today():%Y-%m-%d}", _safe(pair.player), pair.mode,
+             f"{pair.first.date:%Y-%m-%d}", _fmt_gap(pair)]
+    if any(pair.teammates):
+        parts.append(_fmt_groups(pair.teammates))
+    parts.append(_fmt_groups(pair.opponents))
+    stem = "_".join(parts)
     path, n = out_dir / f"{stem}.mp4", 2
     while path.exists():
         path, n = out_dir / f"{stem}_{n}.mp4", n + 1
     return path
 
 
+def _fmt_groups(groups: list[list[str]]) -> str:
+    return "".join("(" + "+".join(_safe(n) for n in g) + ")" for g in groups)
+
+
 def _safe(name: str) -> str:
-    return re.sub(r'[<>:"/\\|?*\s]+', "-", name).strip("-.") or "player"
+    return re.sub(r'[<>:"/\\|?*()+\s]+', "-", name).strip("-.") or "player"
 
 
 def download(cfg, api, match: Match) -> Path:
@@ -139,6 +152,7 @@ def process(pair: Pair, cfg, api, history) -> bool:
             "video": str(final),
         })
     log.info("done: %s", final)
+    game.close_game()
     return True
 
 

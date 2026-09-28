@@ -21,6 +21,14 @@ def _running(image: str) -> bool:
     return image.lower() in out.lower()
 
 
+def close_game() -> None:
+    """Force-close Rocket League after a run (OBS and BakkesMod are left running)."""
+    if _running("RocketLeague.exe"):
+        log.info("closing RocketLeague.exe")
+        print("Closing Rocket League ...")
+        subprocess.run(["taskkill", "/IM", "RocketLeague.exe", "/F"], capture_output=True)
+
+
 def close_all(timeout: float = 60) -> None:
     """Close OBS, Rocket League and BakkesMod so a run starts from a clean state.
 
