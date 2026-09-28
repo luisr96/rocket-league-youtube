@@ -137,6 +137,14 @@ class Recorder:
         time.sleep(ms / 1000 + 0.3)
         log.info("faded out to %r", black_scene)
 
+    def restore_scene(self) -> None:
+        """Switch straight back to the scene from before fade_out (e.g. after recording stopped)."""
+        try:
+            self.client.set_current_scene_transition("Cut")
+            self.client.set_current_program_scene(self.scene)
+        except Exception as e:
+            log.warning("could not switch OBS back to scene %r: %s", self.scene, e)
+
     def fade_in(self, ms: int) -> None:
         """Fade back to the scene that was showing before fade_out."""
         self.client.set_current_program_scene(self.scene)

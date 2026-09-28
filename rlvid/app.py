@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import game, obs, overlay, video
 from .api import ApiError, Ballchasing
-from .bakkes import BakkesError
+from .bakkes import BakkesError, read_status
 from .config import ConfigError, load_config
 from .history import History
 from .search import Match, Pair, find_pairs, find_unseen
@@ -125,7 +125,8 @@ def process(pair: Pair, cfg, api, history) -> bool:
                     time.sleep(0.3)  # a moment of black between the games
                     recorder.fade_in(fade_ms)  # onto the held kickoff frame
             if ov.get("enabled", True):
-                recorder.show_overlay(ov["source"], overlay.url(ov, m))  # fades out by itself
+                players = (read_status() or {}).get("players")  # names as the game shows them
+                recorder.show_overlay(ov["source"], overlay.url(ov, m, players))  # fades out by itself
             time.sleep(0.5)
             game.release(rcon)
             if debug:
@@ -133,11 +134,13 @@ def process(pair: Pair, cfg, api, history) -> bool:
                 game.wait_for_end(debug)
             elif game.wait_for_end(m.duration + buffer) == "timeout":
                 log.warning("game %d did not report its end; stopped after duration + %ds buffer", i, buffer)
+            if fade_ms:  # to black after each game, including the end of the video
+                recorder.fade_out(o.get("transition_scene", "RLVid Black"), fade_ms)
             if i == 1:
-                if fade_ms:
-                    recorder.fade_out(o.get("transition_scene", "RLVid Black"), fade_ms)
                 recorder.pause()  # keep the loading screen of game 2 out of the video
         raw = recorder.stop()
+        if fade_ms:
+            recorder.restore_scene()  # don't leave OBS on the black scene
     except BaseException:
         recorder.abort()
         raise

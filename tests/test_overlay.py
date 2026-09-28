@@ -22,6 +22,42 @@ class SidesTest(unittest.TestCase):
         self.assertEqual(overlay.sides(m), (["nass", "Echo", "Bravo"], ["X", "Y", "Z"]))
 
 
+def game_player(name: str, team: int, pid: str = "") -> dict:
+    return {"name": name, "team": team, "id": pid or f"Player_Steam|{name}|0"}
+
+
+class InGameNamesTest(unittest.TestCase):
+    def setUp(self):
+        # ballchasing says "He belongs to backrooms"; the game shows "Joyo".
+        self.m = match(1, ["He belongs to backrooms", "nass"], ["Charlie", "Delta"])
+        self.m.focus_ids = {"nass": "Player_Steam|111|0"}
+        self.players = [game_player("Joyo", 0), game_player("nass", 0, "Player_Steam|111|0"),
+                        game_player("Charlie", 1), game_player("Delta", 1)]
+
+    def test_uses_in_game_names_with_camera_first(self):
+        self.assertEqual(overlay.sides(self.m, self.players), (["nass", "Joyo"], ["Charlie", "Delta"]))
+
+    def test_camera_found_by_id_even_if_renamed_in_game(self):
+        self.players[1]["name"] = "nass (renamed)"
+        self.assertEqual(overlay.sides(self.m, self.players)[0], ["nass (renamed)", "Joyo"])
+
+    def test_camera_found_by_name_without_focus_id(self):
+        self.m.focus_ids = {}
+        self.assertEqual(overlay.sides(self.m, self.players)[0], ["nass", "Joyo"])
+
+    def test_falls_back_to_ballchasing_names_when_team_sizes_differ(self):
+        self.assertEqual(overlay.sides(self.m, self.players[:3]),
+                         (["nass", "He belongs to backrooms"], ["Charlie", "Delta"]))
+
+    def test_falls_back_without_players(self):
+        self.assertEqual(overlay.sides(self.m, None), (["nass", "He belongs to backrooms"], ["Charlie", "Delta"]))
+        self.assertEqual(overlay.sides(self.m, []), (["nass", "He belongs to backrooms"], ["Charlie", "Delta"]))
+
+    def test_url_uses_in_game_names(self):
+        q = parse_qs(urlparse(overlay.url(SETTINGS, self.m, self.players)).query)
+        self.assertEqual(q["blue"], ["nass", "Joyo"])
+
+
 class UrlTest(unittest.TestCase):
     def parse(self, u: str) -> dict:
         p = urlparse(u)

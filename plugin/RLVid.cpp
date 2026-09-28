@@ -501,8 +501,32 @@ void RLVid::WriteStatus()
             }
         }
     }
+    // Players as the game shows them (name tags), for the overlay. Team 0 blue,
+    // 1 orange; anyone else (e.g. the local spectator) is left out.
+    std::ostringstream players;
+    players << "[";
+    if (inReplay) {
+        auto server = gameWrapper->GetGameEventAsReplay();
+        if (server) {
+            auto pris = server.GetPRIs();
+            bool first = true;
+            for (int i = 0; i < pris.Count(); ++i) {
+                auto pri = pris.Get(i);
+                if (!pri) continue;
+                int team = pri.GetTeamNum();
+                if (team != 0 && team != 1) continue;
+                players << (first ? "" : ", ") << "{\"name\": \"" << JsonEscape(pri.GetPlayerName().ToString())
+                        << "\", \"team\": " << team << ", \"id\": \"Player_"
+                        << JsonEscape(pri.GetUniqueIdWrapper().GetIdString()) << "\"}";
+                first = false;
+            }
+        }
+    }
+    players << "]";
+
     std::ostringstream js;
     js << "{\"in_replay\": " << (inReplay ? "true" : "false")
+       << ", \"players\": " << players.str()
        << ", \"frame\": " << frame
        << ", \"num_frames\": " << numFrames
        << ", \"fps\": " << fps
