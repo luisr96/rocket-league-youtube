@@ -1,6 +1,5 @@
 """history.json: one entry per successfully recorded replay."""
 import json
-from datetime import date
 from pathlib import Path
 
 
@@ -13,9 +12,6 @@ class History:
 
     def ids(self) -> set[str]:
         return {e["id"] for e in self.entries}
-
-    def has_entry_for(self, day: date) -> bool:
-        return any(e.get("processed_date") == day.isoformat() for e in self.entries)
 
     def add(self, entry: dict) -> None:
         self.entries.append(entry)

@@ -41,12 +41,26 @@ buffer_seconds = 30
 # as OBS_WEBSOCKET_PASSWORD.
 host = "localhost"
 port = 4455
+capture_source = "Game Capture"   # name of the Game Capture source in your OBS scene
+# Started automatically if it isn't already running.
+exe = 'C:\Program Files\obs-studio\bin\64bit\obs64.exe'
+# Fade to black between the two games: OBS fades to this empty scene (created
+# if missing) and back. Set transition_ms = 0 for a hard cut.
+transition_scene = "RLVid Black"
+transition_ms = 800
 
 [game]
 # Epic launch link for Rocket League. Set "-noeac" in the Epic launcher's
 # Rocket League launch options so BakkesMod can load.
 epic_launch_uri = "com.epicgames.launcher://apps/9773aa1aa54f4f7b80e44bef04986cea%3A530145df28a24424923f5828cc9031a1%3ASugar?action=launch&silent=true"
 bakkesmod_exe = 'C:\Program Files\BakkesMod\BakkesMod.exe'
+# Close OBS, Rocket League and BakkesMod at the start of each run and start
+# them fresh (after downloading the replays).
+fresh_start = true
 launch_timeout_seconds = 180
 menu_settle_seconds = 8      # wait at the main menu before loading a replay
 replay_start_timeout_seconds = 60
+
+[video]
+# Used to turn OBS's recording into a standard, seekable MP4 (no re-encoding).
+ffmpeg = "ffmpeg"

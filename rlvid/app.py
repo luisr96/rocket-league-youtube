@@ -1,12 +1,12 @@
 """Shared run logic for pick.py and auto.py."""
 import logging
 import re
-import shutil
 import sys
+import time
 from datetime import date, datetime
 from pathlib import Path
 
-from . import game, obs
+from . import game, obs, video
 from .api import ApiError, Ballchasing
 from .bakkes import BakkesError
 from .config import ConfigError, load_config
@@ -74,24 +74,45 @@ def process(pair: Pair, cfg, api, history) -> bool:
     """Record both games of the pair into one video; mark them done only on success."""
     log.info("selected pair: %s %s, %s then %s", pair.player, pair.mode, pair.first.id, pair.second.id)
     print(f"Selected {pair.player} {pair.mode}: {pair.first.id} + {pair.second.id}")
-    o = cfg.raw["obs"]
-    recorder = obs.Recorder(o["host"], o["port"])  # fail fast if OBS is not ready
+    ffmpeg = video.find_ffmpeg(cfg.raw.get("video", {}).get("ffmpeg", "ffmpeg"))  # fail before recording
     replays = [download(cfg, api, m) for m in pair.matches]
 
     g = cfg.raw["game"]
+    if g.get("fresh_start", True):
+        # A recording OBS asks for confirmation instead of closing; close_all
+        # then times out with an error rather than cutting that recording off.
+        game.close_all()
+    o = cfg.raw["obs"]
+    recorder = obs.connect(o["host"], o["port"], o["exe"])  # OBS first, so it can't steal focus from the game
     kickoff = cfg.raw.get("camera", {}).get("kickoff_director_seconds", 0)
     buffer = cfg.raw["recording"]["buffer_seconds"]
+    fade_ms = o.get("transition_ms", 0)
     rcon = game.ensure_game(g)
     try:
         for i, (m, replay) in enumerate(zip(pair.matches, replays), 1):
             print(f"Game {i}/2: playing {m.score} ({m.length}), camera on {m.camera_player} ...")
+            # The replay is held on its first frame (camera already set) until
+            # recording runs, so the video starts at the kickoff countdown.
             game.start_replay(rcon, replay, m.camera_focus_id or m.camera_player,
-                              g["replay_start_timeout_seconds"], kickoff)
-            recorder.start() if i == 1 else recorder.resume()
+                              g["replay_start_timeout_seconds"], kickoff, hold=True)
+            if i == 1:
+                # No black video after a fresh game launch. Not for game 2: the
+                # black scene is showing then, so the capture reads black anyway.
+                recorder.wait_for_capture(o["capture_source"])
+                recorder.start()
+            else:
+                recorder.resume()
+                if fade_ms:
+                    time.sleep(0.3)  # a moment of black between the games
+                    recorder.fade_in(fade_ms)  # onto the held kickoff frame
+            time.sleep(0.5)
+            game.release(rcon)
             reason = game.wait_for_end(m.duration + buffer)
             if reason == "timeout":
                 log.warning("game %d did not report its end; stopped after duration + %ds buffer", i, buffer)
             if i == 1:
+                if fade_ms:
+                    recorder.fade_out(o.get("transition_scene", "RLVid Black"), fade_ms)
                 recorder.pause()  # keep the loading screen of game 2 out of the video
         raw = recorder.stop()
     except BaseException:
@@ -101,7 +122,8 @@ def process(pair: Pair, cfg, api, history) -> bool:
         rcon.close()
 
     final = video_path(cfg, pair)
-    shutil.move(str(raw), final)
+    print("Finalizing video ...")
+    video.finalize(ffmpeg, raw, final)
     print(f"Saved video: {final}")
     today = date.today().isoformat()
     for m in pair.matches:
@@ -126,9 +148,6 @@ def find_pairs_for(cfg, api, history) -> list[Pair]:
 
 
 def cmd_pick(cfg, api, history) -> int:
-    if history.has_entry_for(date.today()):
-        if input("A video was already made today. Continue anyway? [y/N] ").strip().lower() != "y":
-            return 0
     print(f"Searching ballchasing for: {', '.join(cfg.players)} ...")
     pairs = find_pairs_for(cfg, api, history)[: cfg.search["pick_list_size"]]
     if not pairs:
@@ -145,12 +164,11 @@ def cmd_pick(cfg, api, history) -> int:
 
 
 def cmd_auto(cfg, api, history) -> int:
-    if history.has_entry_for(date.today()):
-        log.info("already made a video today, exiting")
-        return 0
+    print(f"Searching ballchasing for: {', '.join(cfg.players)} ...")
     pairs = find_pairs_for(cfg, api, history)
     if not pairs:
         log.info("no unseen pairs of games")
+        print("No unseen pairs of games found.")
         return 0
     return 0 if process(pairs[0], cfg, api, history) else 1
 
@@ -171,8 +189,8 @@ def run(command) -> int:
     except ApiError as e:
         log.error("API error: %s", e)
         return 1
-    except obs.ObsError as e:
-        log.error("OBS error: %s", e)
+    except (obs.ObsError, video.VideoError) as e:
+        log.error("OBS/video error: %s", e)
         return 1
     except (game.GameError, BakkesError) as e:
         log.error("game error: %s", e)

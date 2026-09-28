@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(python -m py_compile *)",
+      "Bash(python -m py_compile *)",
+      "PowerShell(ffmpeg *)",
+      "PowerShell(ffprobe *)",
+      "Bash(ffmpeg *)",
+      "Bash(ffprobe *)"
+    ]
+  }
+}

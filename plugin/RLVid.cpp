@@ -9,6 +9,10 @@
 //       frame, so it holds through kickoffs and goals. Optional third
 //       argument N > 0: use the Director camera during each kickoff until N
 //       seconds after the ball is first touched.
+//       Optional fourth argument "hold": pause on the first frame (camera
+//       already set) until rlvid_release, so recording can start first.
+//   rlvid_release
+//       Resume a replay held by rlvid_play ... hold.
 //   rlvid_info
 //       Log camera/player diagnostics to the BakkesMod console.
 //
@@ -34,12 +38,13 @@ public:
     void onUnload() override;
 
 private:
-    void Play(const std::string& path, const std::string& target, float kickoffSeconds);
+    void Play(const std::string& path, const std::string& target, float kickoffSeconds, bool hold);
     void Enforce();
     void UpdateKickoff();
     void LogCameraChange(ReplayViewerDataWrapper& viewer);
     std::string ResolveTarget();
     void Info();
+    void Release();
     void Tick();
     void WriteStatus();
     ReplayViewerDataWrapper Viewer();
@@ -52,6 +57,7 @@ private:
     bool seenReplay_ = false;    // replay started since the last rlvid_play
     bool awaitingLoad_ = false;  // rlvid_play was called inside a replay; ignore it until it unloads
     int corrections_ = 0;
+    bool holdAtStart_ = false;   // pause on the first frame until rlvid_release
     float kickoffSeconds_ = 0;   // >0: Director camera on kickoffs until this long after the first touch
     bool inKickoff_ = false;
     bool wasKickoff_ = false;
@@ -94,8 +100,13 @@ void RLVid::onLoad()
         if (args.size() > 3) {
             try { kickoff = std::stof(args[3]); } catch (...) {}
         }
-        Play(args.size() > 1 ? args[1] : "", args.size() > 2 ? args[2] : "", kickoff);
-    }, "Play a replay locked on a player: rlvid_play \"<path>\" \"<focus id or name>\" [kickoff director seconds]", PERMISSION_ALL);
+        bool hold = args.size() > 4 && args[4] == "hold";
+        Play(args.size() > 1 ? args[1] : "", args.size() > 2 ? args[2] : "", kickoff, hold);
+    }, "Play a replay locked on a player: rlvid_play \"<path>\" \"<focus id or name>\" [kickoff director seconds] [hold]", PERMISSION_ALL);
+
+    cvarManager->registerNotifier("rlvid_release", [this](std::vector<std::string>) {
+        Release();
+    }, "Resume a replay held on its first frame by rlvid_play ... hold", PERMISSION_ALL);
 
     cvarManager->registerNotifier("rlvid_info", [this](std::vector<std::string>) {
         Info();
@@ -125,7 +136,7 @@ std::filesystem::path RLVid::StatusPath()
     return gameWrapper->GetDataFolder() / "rlvid_status.json";
 }
 
-void RLVid::Play(const std::string& path, const std::string& target, float kickoffSeconds)
+void RLVid::Play(const std::string& path, const std::string& target, float kickoffSeconds, bool hold)
 {
     if (path.empty()) { lastEvent_ = "play_error: missing path"; return; }
     if (!std::filesystem::exists(path)) {
@@ -142,6 +153,7 @@ void RLVid::Play(const std::string& path, const std::string& target, float kicko
     awaitingLoad_ = gameWrapper->IsInReplay();
     corrections_ = 0;
     kickoffSeconds_ = kickoffSeconds;
+    holdAtStart_ = hold;
     inKickoff_ = wasKickoff_ = false;
     releaseFrame_ = -1;
     lastEvent_ = "play_requested";
@@ -189,9 +201,15 @@ void RLVid::Enforce()
         }
         return;
     }
-    seenReplay_ = true;
     auto viewer = Viewer();
     if (!viewer) return;
+    if (!seenReplay_) {
+        seenReplay_ = true;
+        if (holdAtStart_) {
+            viewer.SetPausedForScrub(1);
+            cvarManager->log("rlvid: holding replay on its first frame");
+        }
+    }
 
     if (viewer.GetbShowReplayHUD()) viewer.SetShowReplayHUD(0);
     if (!viewer.GetbShowPlayerNames()) viewer.SetShowPlayerNames(1);
@@ -204,6 +222,12 @@ void RLVid::Enforce()
     UpdateKickoff();
     bool changed = false;
     if (inKickoff_) {
+        // Clear the focus too: with the target still focused, the game treats the
+        // Director shot as "watching the target" (their boost meter shown, their
+        // nameplate hidden) even while it shows other cars. Clearing the focus
+        // switches the game to Fly, so set the Director again in the same tick
+        // (before anything is rendered).
+        if (!viewer.GetFocusActorString().empty()) { viewer.SetFocusActorString(""); changed = true; }
         if (viewer.GetCameraMode() != kDirectorMode) { viewer.SetCameraMode(kDirectorMode); changed = true; }
     } else {
         // Focus before mode: Player View is disabled while nothing is focused.
@@ -281,6 +305,16 @@ std::string RLVid::FocusedName()
     return pri.GetPlayerName().ToString();
 }
 
+// Resumes a replay that rlvid_play held on its first frame.
+void RLVid::Release()
+{
+    auto viewer = Viewer();
+    if (!viewer) { lastEvent_ = "release_error: not in replay"; return; }
+    viewer.SetPausedForScrub(0);
+    holdAtStart_ = false;
+    cvarManager->log("rlvid: released");
+}
+
 void RLVid::Info()
 {
     if (!gameWrapper->IsInReplay()) { cvarManager->log("rlvid_info: not in a replay"); return; }
@@ -324,6 +358,25 @@ void RLVid::WriteStatus()
             cameraMode = viewer.GetCameraMode();
         }
     }
+    float targetBoost = -1;
+    int targetBoostReplicated = -1;
+    if (inReplay && !focusId_.empty()) {
+        auto server = gameWrapper->GetGameEventAsReplay();
+        if (server) {
+            auto cars = server.GetCars();
+            for (int i = 0; i < cars.Count(); ++i) {
+                auto car = cars.Get(i);
+                if (!car) continue;
+                auto pri = car.GetPRI();
+                if (!pri || "Player_" + pri.GetUniqueIdWrapper().GetIdString() != focusId_) continue;
+                auto boost = car.GetBoostComponent();
+                if (boost) {
+                    targetBoost = boost.GetCurrentBoostAmount();
+                    targetBoostReplicated = boost.GetReplicatedBoostAmount();
+                }
+            }
+        }
+    }
     std::ostringstream js;
     js << "{\"in_replay\": " << (inReplay ? "true" : "false")
        << ", \"frame\": " << frame
@@ -335,6 +388,9 @@ void RLVid::WriteStatus()
        << ", \"camera_mode\": \"" << JsonEscape(cameraMode) << "\""
        << ", \"locked\": " << (locked_ ? "true" : "false")
        << ", \"corrections\": " << corrections_
+       << ", \"paused\": " << (inReplay && Viewer() && Viewer().GetbPausedForScrub() ? "true" : "false")
+       << ", \"target_boost\": " << targetBoost
+       << ", \"target_boost_replicated\": " << targetBoostReplicated
        << ", \"kickoff\": " << (inKickoff_ ? "true" : "false")
        << ", \"event\": \"" << JsonEscape(lastEvent_) << "\""
        << ", \"time\": " << (long long)std::time(nullptr) << "}";

@@ -41,7 +41,7 @@ class Ballchasing:
                 time.sleep(5 * attempt)
                 continue
             if r.status_code == 429:
-                backoff = int(r.headers.get("Retry-After") or 10 * attempt)
+                backoff = max(int(r.headers.get("Retry-After") or 0), 2 * attempt)
                 log.warning("rate limited by ballchasing, sleeping %ds", backoff)
                 time.sleep(backoff)
                 continue
