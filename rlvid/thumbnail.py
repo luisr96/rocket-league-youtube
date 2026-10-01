@@ -14,7 +14,8 @@ from urllib.parse import urlencode
 
 log = logging.getLogger(__name__)
 
-PAGE = Path(__file__).resolve().parent.parent / "overlay" / "thumbnail.html"
+OVERLAY_DIR = Path(__file__).resolve().parent.parent / "overlay"
+PAGE = OVERLAY_DIR / "thumbnail.html"
 
 # (file name label, seconds relative to the goal)
 SHOTS = [("1s-before", -1.0), ("0.5s-before", -0.5), ("0.1s-before", -0.1),
@@ -49,7 +50,15 @@ def choose_goal(data: dict) -> tuple[dict, str] | None:
     return None
 
 
+def rank_icon(data: dict) -> Path | None:
+    """overlay/rank_<rank id>.png (e.g. rank_supersonic-legend.png) if there is one for the video's rank."""
+    rank = data.get("rank") or ""
+    p = OVERLAY_DIR / f"rank_{rank}.png"
+    return p if rank and p.exists() else None
+
+
 def page_url(settings: dict, frame: Path, data: dict) -> str:
+    """The thumbnail page for one frame. Zoom and sharpening are done by ffmpeg on the frame itself."""
     g1 = data["games"][0]
     overlay = g1["overlay"]
     team = g1["target"]["team"]
@@ -57,12 +66,29 @@ def page_url(settings: dict, frame: Path, data: dict) -> str:
     big = overlay[team][0] if overlay.get(team) else g1["target"]["name"]
     q = [("bg", frame.as_uri()),
          ("big", big if settings.get("big_name", True) else ""),
+         ("layout", settings.get("layout", "corner")),
+         ("teams", "1" if settings.get("team_names", False) else "0"),
          ("size", str(settings.get("names_size", 70))),
          ("pos", settings.get("names_position", "bottom")),
-         ("zoom", "1" if settings.get("zoom", True) else "0"),
-         ("pop", "1" if settings.get("colours", True) else "0")]
+         ("zoom", "0"),
+         ("pop", "1" if settings.get("colours", True) else "0"),
+         ("sat", str(settings.get("saturation", 1.7))),
+         ("con", str(settings.get("contrast", 1.25)))]
+    icon = rank_icon(data) if settings.get("rank_icon", True) else None
+    if icon:
+        q.append(("icon", icon.as_uri()))
     q += [("blue", n) for n in overlay["blue"]] + [("orange", n) for n in overlay["orange"]]
     return PAGE.as_uri() + "?" + urlencode(q)
+
+
+def frame_filter(settings: dict) -> str:
+    """ffmpeg filter for the video frame: optional zoom (crop to the middle 70% of the full
+    1920x1080 frame, so no detail is lost), scale to 1280x720, light sharpening."""
+    steps = ["crop=iw*0.7:ih*0.7"] if settings.get("zoom", True) else []
+    steps.append("scale=1280:720:flags=lanczos")
+    if settings.get("sharpen", True):
+        steps.append("unsharp=5:5:0.8")
+    return ",".join(steps)
 
 
 def find_edge(configured: str = "") -> str:
@@ -101,7 +127,7 @@ def make(ffmpeg: str, video: Path, settings: dict | None = None) -> list[Path]:
         for label, t in shots:
             frame, shot = tmp / f"{label}.png", tmp / f"{label}_page.png"
             _run([ffmpeg, "-v", "error", "-y", "-ss", f"{max(t, 0):.3f}", "-i", str(video),
-                  "-frames:v", "1", "-vf", "scale=1280:720", str(frame)], f"frame at {t:.1f}s")
+                  "-frames:v", "1", "-vf", frame_filter(settings), str(frame)], f"frame at {t:.1f}s")
             _run([edge, "--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run",
                   f"--user-data-dir={tmp / 'edge'}", "--window-size=1280,720", "--virtual-time-budget=3000",
                   f"--screenshot={shot}", page_url(settings, frame, data)], "Edge screenshot")

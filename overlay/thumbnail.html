@@ -11,6 +11,13 @@
     pos=bottom       team names at the bottom, middle or top (the large name goes opposite)
     zoom=1           crop to the middle 70% of the frame
     pop=1            more saturation/contrast and darker edges
+    sat=1.35         saturation when pop=1 (1 = unchanged)
+    con=1.12         contrast when pop=1
+    layout=center    large name centred (opposite the team names), or "corner": top left
+    teams=1          show the team names (0 = large name only)
+    icon=<file URL>  emblem (e.g. the rank icon) in the top-right corner; in the corner layout its
+                     centre is lined up with the centre of the name's letters (the image should be
+                     trimmed to its visible pixels, like overlay/rank_supersonic-legend.png)
 -->
 <html>
 <head>
@@ -29,6 +36,11 @@
   #big { position: absolute; left: 0; right: 0; text-align: center; white-space: nowrap;
          font-size: 150px; line-height: 1; letter-spacing: 2px; text-transform: uppercase;
          -webkit-text-stroke: 8px #000; paint-order: stroke fill; }
+  #icon { position: absolute; right: 34px; top: 40px; width: 260px; height: auto;
+          display: none; filter: drop-shadow(0 6px 12px rgba(0,0,0,.65)); }
+  #big.corner { left: 34px; right: auto; top: 26px; text-align: left; font-size: 190px; letter-spacing: 0;
+                -webkit-text-stroke: 10px #000;
+                filter: drop-shadow(0 6px 10px rgba(0,0,0,.7)); }
 </style>
 </head>
 <body>
@@ -37,6 +49,7 @@
   <div id="vignette"></div>
   <div id="teams"><div class="half" id="blue"></div><div class="half" id="orange"></div></div>
   <div id="big"></div>
+  <img id="icon">
 </div>
 <script>
   const q = new URLSearchParams(location.search);
@@ -47,13 +60,21 @@
   bg.src = q.get("bg") || "";
   if (q.get("zoom") === "1") bg.style.transform = "scale(1.43)";
   if (q.get("pop") === "1") {
-    bg.style.filter = "saturate(1.35) contrast(1.12) brightness(1.03)";
+    const sat = parseFloat(q.get("sat")) || 1.35, con = parseFloat(q.get("con")) || 1.12;
+    bg.style.filter = `saturate(${sat}) contrast(${con}) brightness(1.03)`;
     document.getElementById("vignette").style.display = "block";
   }
 
+  const icon = document.getElementById("icon");
+  if (q.get("icon")) {
+    icon.src = q.get("icon");
+    icon.style.display = "block";
+  }
+
+  const showTeams = q.get("teams") !== "0";
   for (const side of ["blue", "orange"]) {
     const col = document.getElementById(side);
-    for (const n of q.getAll(side)) {
+    for (const n of showTeams ? q.getAll(side) : []) {
       const el = document.createElement("div");
       el.className = "name";
       el.textContent = n;
@@ -75,12 +96,35 @@
   teams.style.height = h + "px";
 
   const big = document.getElementById("big");
-  big.style.top = (pos === "top" ? 720 - 150 - 50 : 50) + "px";
+  const corner = q.get("layout") === "corner";
+  if (corner) big.classList.add("corner");
+  else big.style.top = (pos === "top" ? 720 - 150 - 50 : 50) + "px";
   const text = document.createElement("span");  // measured on its own: #big spans the full width
   text.textContent = q.get("big") || "";
   big.appendChild(text);
-  let bs = 150;  // a long player name shrinks to fit the width
-  while (text.offsetWidth > 1200 && bs > 40) big.style.fontSize = --bs + "px";
+  // A long player name shrinks to fit (in the corner layout: the left 3/4 of the width).
+  let bs = corner ? 190 : 150;
+  const maxW = corner ? 900 : 1200;
+  while (text.offsetWidth > maxW && bs > 40) big.style.fontSize = --bs + "px";
+
+  // Line the emblem up with the name: the vertical centre of the name's letters
+  // (not of its text box, which has room above and below the capitals) on the
+  // same horizontal line as the centre of the emblem.
+  function alignIcon() {
+    if (!corner || !q.get("icon") || !text.textContent) return;
+    const marker = document.createElement("span");  // sits on the text baseline
+    marker.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
+    text.appendChild(marker);
+    const baseline = marker.getBoundingClientRect().top;
+    marker.remove();
+    const cs = getComputedStyle(big);
+    const ctx = document.createElement("canvas").getContext("2d");
+    ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    const m = ctx.measureText(text.textContent.toUpperCase());
+    const lettersCentre = baseline - (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2;
+    icon.style.top = (lettersCentre - icon.getBoundingClientRect().height / 2) + "px";
+  }
+  if (icon.complete && icon.naturalWidth) alignIcon(); else icon.addEventListener("load", alignIcon);
 </script>
 </body>
 </html>

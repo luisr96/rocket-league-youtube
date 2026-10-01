@@ -3,3 +3,5 @@ logs/
 history.json
 __pycache__/
 .venv/
+youtube_client_secret.json
+youtube_token.json

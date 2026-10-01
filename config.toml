@@ -73,12 +73,29 @@ fade_in_seconds = 0       # 0 = appears at once
 # after it (explosion) and 5 s after it (close-up). Remake them for an existing
 # video with: python thumbnails.py "<video>.mp4"
 enabled = true
-names_size = 70           # team names, px (long names shrink to fit)
-names_position = "bottom" # bottom, middle or top (the large player name goes opposite)
 big_name = true           # the target player's name in large letters
+layout = "corner"         # corner: name top left (rank emblem top right); center: name centred at the top
+rank_icon = true          # rank emblem top right, from overlay/rank_<rank>.png (e.g. rank_supersonic-legend.png)
+team_names = false        # all players' names at the bottom (YouTube's length badge covers the bottom right)
+names_size = 70           # team names, px (long names shrink to fit)
+names_position = "bottom" # team names at the bottom, middle or top
 zoom = true               # crop to the middle 70% of the frame
-colours = true            # more saturation/contrast and darker edges
+sharpen = true
+colours = true            # stronger colours (below) and darker edges
+saturation = 1.7          # 1 = unchanged
+contrast = 1.25           # 1 = unchanged
 # edge = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'   # if Edge isn't found
+
+[youtube]
+# Uploading (upload.py, daily.py). Setup: see README "YouTube setup"; then sign
+# in once with: python upload.py --login
+client_secrets = "youtube_client_secret.json"   # OAuth client file from Google Cloud
+token_file = "youtube_token.json"               # saved sign-in (created by --login)
+privacy = "private"           # private until the API project passes Google's audit; publish in YouTube Studio
+category_id = "20"            # Gaming
+titles_file = "titles.txt"    # title patterns, one per line, used in turn
+thumbnail = "1s-before"       # 1s-before, 0.5s-before, 0.1s-before, 0.4s-after or 5s-after
+delete_after_upload = true    # delete the video and its data file after upload (thumbnails are kept)
 
 [game]
 # Epic launch link for Rocket League. Set "-noeac" in the Epic launcher's

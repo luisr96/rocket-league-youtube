@@ -1,0 +1,14 @@
+# YouTube title patterns. Each upload uses the next line, going round in a loop.
+# Add, remove or change lines freely. Lines starting with # are ignored.
+#
+# Placeholders (written exactly like this, in curly brackets):
+#   {PLAYER}  the player's name in capitals, e.g. ATOW
+#   {RANK}    the rank, e.g. SSL (left out when unknown)
+#   {MODE}    the mode, e.g. 2v2
+# YouTube allows titles up to 100 characters.
+
+{PLAYER} is OVERPOWERED in Rocket League! ({RANK} {MODE})
+{PLAYER} Makes {RANK} Look EASY! (Rocket League {MODE})
+This is Why {PLAYER} is One of the BEST in Rocket League ({RANK} {MODE})
+{PLAYER} Puts On a SHOW in {RANK} {MODE}! | Rocket League
+INSANE {RANK} {MODE} Gameplay from {PLAYER} | Rocket League

@@ -22,6 +22,8 @@ class Match:
     featured: list[str]  # listed players in this match (in-game names), in players.txt order
     listed: list[str]    # the same players as written in players.txt
     focus_ids: dict[str, str]  # in-game camera focus id per player name, when known
+    rank: str = ""             # ballchasing rank id, e.g. "supersonic-legend" ("" if unknown)
+    season: int | None = None
 
     @property
     def score(self) -> str:
@@ -118,6 +120,8 @@ def to_match(r: dict, wanted: list[str]) -> Match | None:
         blue_goals=bg, orange_goals=og,
         featured=[h for h, _ in featured], listed=[w for _, w in featured],
         focus_ids=_focus_ids(r.get("blue", {}), r.get("orange", {})),
+        rank=(r.get("max_rank") or r.get("min_rank") or {}).get("id", ""),
+        season=r.get("season"),
     )
 
 

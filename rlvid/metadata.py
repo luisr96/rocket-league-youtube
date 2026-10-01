@@ -59,6 +59,8 @@ def game(i: int, m: Match, overlay_sides: tuple[list[str], list[str]], game_goal
         "map": m.map,
         "score": {"blue": m.blue_goals, "orange": m.orange_goals},
         "duration": m.duration,
+        "rank": m.rank,
+        "season": m.season,
         "target": {"name": m.camera_player, "id": m.camera_focus_id, "team": target_team(m)},
         "overlay": {"blue": overlay_sides[0], "orange": overlay_sides[1]},
         "ballchasing": {"blue": m.blue_players, "orange": m.orange_players},
@@ -66,13 +68,20 @@ def game(i: int, m: Match, overlay_sides: tuple[list[str], list[str]], game_goal
     }
 
 
-def write(video: Path, pair: Pair, games: list[dict]) -> Path:
+def write(video: Path, pair: Pair, games: list[dict], search: dict | None = None) -> Path:
     path = video.with_suffix(".json")
+    search = search or {}
+    # The replay's own rank when ballchasing has it, else the search's rank if it is a single one.
+    rank = pair.first.rank or pair.second.rank or (
+        search.get("min_rank", "") if search.get("min_rank") == search.get("max_rank") else "")
     data = {
         "video": video.name,
         "created": datetime.now().isoformat(timespec="seconds"),
         "player": pair.player,
         "mode": pair.mode,
+        "rank": rank,
+        "season": pair.first.season,
+        "pro": bool(search.get("pro")),
         "games": games,
     }
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")

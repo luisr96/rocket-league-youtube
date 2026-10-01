@@ -6,7 +6,7 @@ import time
 from datetime import date, datetime
 from pathlib import Path
 
-from . import game, metadata, obs, overlay, thumbnail, video
+from . import game, metadata, obs, overlay, thumbnail, video, youtube
 from .api import ApiError, Ballchasing
 from .bakkes import BakkesError, read_status
 from .config import ConfigError, load_config
@@ -159,7 +159,7 @@ def process(pair: Pair, cfg, api, history) -> bool:
     print("Finalizing video ...")
     video.finalize(ffmpeg, raw, final)
     print(f"Saved video: {final}")
-    log.info("saved %s", metadata.write(final, pair, games))
+    log.info("saved %s", metadata.write(final, pair, games, cfg.search))
     make_thumbnails(cfg, ffmpeg, final)
     if debug:
         print("Debug run: games not marked as done.")
@@ -248,6 +248,9 @@ def run(command) -> int:
         return 1
     except (obs.ObsError, video.VideoError) as e:
         log.error("OBS/video error: %s", e)
+        return 1
+    except youtube.YouTubeError as e:
+        log.error("YouTube error: %s", e)
         return 1
     except (game.GameError, BakkesError) as e:
         log.error("game error: %s", e)

@@ -69,14 +69,34 @@ Note: BakkesMod's rcon server listens on all network interfaces, protected by th
    - **Encoder:** your GPU's hardware encoder: NVIDIA NVENC H.264/HEVC, AMD HW H.264, or Intel QuickSync. On an NVIDIA RTX card, use NVENC H.264, Preset **P5: Slow (Good Quality)**, Tuning **High Quality**, Multipass **Two Passes (Quarter Resolution)**, Profile **high**.
    - **Rate control:** CQP/CQ level 18–20 for high quality, or CBR at about 40–50 Mbps for 1080p60.
    - **Recording Path:** any folder. The tool moves the finished file to `output_dir` from `config.toml`.
-7. The tool manages OBS itself. With `fresh_start = true` in `[game]` (the default), each run first closes OBS, Rocket League and BakkesMod (after downloading the replays), then starts them again in that order, and leaves them open afterwards. If OBS is recording when a run starts, it asks for confirmation instead of closing, and the run stops with an error rather than cutting that recording off. Keep only one copy of OBS open: with two copies, both try to capture the game and the recording turns black, so the tool refuses to run. If OBS was closed uncleanly it may show a crash/safe-mode dialog on the next start; answer it once, or the run fails with a clear error when the WebSocket doesn't come up.
+7. The tool manages OBS itself. With `fresh_start = true` in `[game]` (the default), each run first closes OBS, Rocket League and BakkesMod (after downloading the replays), then starts them again in that order, and leaves them open afterwards. If OBS is recording when a run starts, it asks for confirmation instead of closing, and the run stops with an error rather than cutting that recording off. Keep only one copy of OBS open: with two copies, both try to capture the game and the recording turns black, so the tool refuses to run. OBS is started with `--disable-shutdown-check`, so after a crash it starts normally instead of asking about Safe Mode.
+
+### 7. YouTube
+
+Videos are uploaded as **private**: you publish them yourself in YouTube Studio. (Google locks videos uploaded through an API project to private until the project passes Google's audit.)
+
+1. **Channel:** in YouTube, open **Settings → Add or manage your channel(s) → Create a channel**. This makes a separate channel managed by your normal Google account; no new account is needed.
+2. **Custom thumbnails:** in YouTube Studio, verify the channel by phone (**Settings → Channel → Feature eligibility**). Without it, uploads still work but the thumbnail is not set.
+3. **Google Cloud project:** at https://console.cloud.google.com create a project, then:
+   - **APIs & Services → Library:** enable **YouTube Data API v3**.
+   - **APIs & Services → OAuth consent screen:** User type **External**, fill in the app name and your email. Under **Test users**, add the Google account that owns the channel. Then **Publish app** (to "In production"); in "Testing" the sign-in expires after 7 days.
+   - **APIs & Services → Credentials → Create credentials → OAuth client ID:** application type **Desktop app**. Download the JSON file and save it in this folder as `youtube_client_secret.json`.
+4. **Sign in once:** run `python upload.py --login`. A browser opens: sign in, **choose the Rocket League channel**, and allow access. Google may warn that the app isn't verified: click **Advanced → Go to (app name)**. The sign-in is saved in `youtube_token.json`.
+
+`youtube_client_secret.json` and `youtube_token.json` are secrets: they are in `.gitignore`, don't share them.
 
 ## Usage
 
 ```
 python pick.py   # numbered list of unseen game pairs; type a number to record it
-python auto.py   # newest unseen pair, no prompts (for Task Scheduler)
+python auto.py   # newest unseen pair, no prompts
+python upload.py # upload every recorded video that isn't on YouTube yet
+python daily.py  # auto.py then upload.py: the one to run from Task Scheduler
+python thumbnails.py "<video>.mp4"   # remake a video's thumbnail candidates
 ```
+
+- **Each video** is saved in `output_dir` with a `.json` data file (names, scores, goal times) and 5 thumbnail candidates (`_thumb_1s-before.jpg`, …).
+- **Uploading** (`[youtube]` in `config.toml`): the title, description and tags are generated from the data file. Titles come from `titles.txt` (one pattern per line, used in turn; edit or add lines freely); the thumbnail is `1s-before` unless set otherwise. After a successful upload the YouTube link is saved in `history.json` and the video and data file are deleted; the thumbnails are kept, so you can pick another one in YouTube Studio. A failed upload is retried on the next run. When YouTube's daily limit is reached (about 6 uploads a day), uploading stops until the next run.
 
 - **Logs:** each run writes a log file to `logs/`.
 - **Failures:** a failed run (API, game, OBS) is logged and nothing is marked as done. A partial recording is left in the OBS recording folder.
