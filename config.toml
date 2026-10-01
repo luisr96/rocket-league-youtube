@@ -66,6 +66,20 @@ hold_seconds = 4          # fully visible for this long
 fade_out_seconds = 2      # then fades out over this long
 fade_in_seconds = 0       # 0 = appears at once
 
+[thumbnail]
+# YouTube thumbnail candidates (1280x720 JPG) saved next to each video, taken
+# around the target's fastest goal in game 1 (else a teammate's goal in game 1,
+# else the target's goal in game 2): 1 s, 0.5 s and 0.1 s before it, 0.4 s
+# after it (explosion) and 5 s after it (close-up). Remake them for an existing
+# video with: python thumbnails.py "<video>.mp4"
+enabled = true
+names_size = 70           # team names, px (long names shrink to fit)
+names_position = "bottom" # bottom, middle or top (the large player name goes opposite)
+big_name = true           # the target player's name in large letters
+zoom = true               # crop to the middle 70% of the frame
+colours = true            # more saturation/contrast and darker edges
+# edge = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'   # if Edge isn't found
+
 [game]
 # Epic launch link for Rocket League. Set "-noeac" in the Epic launcher's
 # Rocket League launch options so BakkesMod can load.

@@ -6,7 +6,7 @@ import time
 from datetime import date, datetime
 from pathlib import Path
 
-from . import game, obs, overlay, video
+from . import game, metadata, obs, overlay, thumbnail, video
 from .api import ApiError, Ballchasing
 from .bakkes import BakkesError, read_status
 from .config import ConfigError, load_config
@@ -106,6 +106,7 @@ def process(pair: Pair, cfg, api, history) -> bool:
         recorder.setup_overlay(ov["source"], overlay.url(ov))
     rcon = game.ensure_game(g)
     rcon.send(f"rlvid_kickoff_keep_focus {int(bool(cfg.raw.get('camera', {}).get('kickoff_keep_focus', False)))}")
+    games = []  # per-game data for the <video>.json file
     try:
         for i, (m, replay) in enumerate(zip(pair.matches, replays), 1):
             print(f"Game {i}/2: playing {m.score} ({m.length}), camera on {m.camera_player} ...")
@@ -124,16 +125,23 @@ def process(pair: Pair, cfg, api, history) -> bool:
                 if fade_ms:
                     time.sleep(0.3)  # a moment of black between the games
                     recorder.fade_in(fade_ms)  # onto the held kickoff frame
+            players = (read_status() or {}).get("players")  # names as the game shows them
             if ov.get("enabled", True):
-                players = (read_status() or {}).get("players")  # names as the game shows them
                 recorder.show_overlay(ov["source"], overlay.url(ov, m, players))  # fades out by itself
             time.sleep(0.5)
+            # Where this game starts in the video: the recording length and the
+            # clock time just before release; goal times build on these.
+            video_start = recorder.record_seconds()
+            release_wall = time.time()
             game.release(rcon)
             if debug:
                 print(f"  debug: recording only {debug:g}s of this game")
                 game.wait_for_end(debug)
             elif game.wait_for_end(m.duration + buffer) == "timeout":
                 log.warning("game %d did not report its end; stopped after duration + %ds buffer", i, buffer)
+            game_goals = metadata.goals(m, (read_status() or {}).get("goals", []), video_start, release_wall)
+            log.info("game %d goals: %s", i, game_goals)
+            games.append(metadata.game(i, m, overlay.sides(m, players), game_goals, video_start))
             if fade_ms:  # to black after each game, including the end of the video
                 recorder.fade_out(o.get("transition_scene", "RLVid Black"), fade_ms)
             if i == 1:
@@ -151,19 +159,22 @@ def process(pair: Pair, cfg, api, history) -> bool:
     print("Finalizing video ...")
     video.finalize(ffmpeg, raw, final)
     print(f"Saved video: {final}")
+    log.info("saved %s", metadata.write(final, pair, games))
+    make_thumbnails(cfg, ffmpeg, final)
     if debug:
         print("Debug run: games not marked as done.")
         log.info("debug run done: %s", final)
         game.close_game()
         return True
     today = date.today().isoformat()
-    for m in pair.matches:
+    for m, info in zip(pair.matches, games):
         history.add({
             "id": m.id,
             "processed_date": today,
             "game_date": m.date.isoformat(),
             "player": pair.player,
             "players": {"blue": m.blue_players, "orange": m.orange_players},
+            "overlay": info["overlay"],  # names as shown in the game (and the overlay)
             "map": m.map,
             "score": m.score,
             "playlist": m.playlist,
@@ -172,6 +183,20 @@ def process(pair: Pair, cfg, api, history) -> bool:
     log.info("done: %s", final)
     game.close_game()
     return True
+
+
+def make_thumbnails(cfg, ffmpeg: str, final: Path) -> None:
+    """Thumbnail candidates next to the video. A failure is only a warning: the video is already saved."""
+    t = cfg.raw.get("thumbnail", {})
+    if not t.get("enabled", True):
+        return
+    print("Making thumbnails ...")
+    try:
+        paths = thumbnail.make(ffmpeg, final, t)
+        print(f"Saved {len(paths)} thumbnail(s) next to the video.")
+    except (thumbnail.ThumbnailError, OSError, KeyError, ValueError) as e:
+        log.warning("thumbnails failed: %s", e)
+        print(f"WARNING: thumbnails failed ({e}); the video is saved. Retry with: python thumbnails.py \"{final}\"")
 
 
 def find_pairs_for(cfg, api, history) -> list[Pair]:

@@ -1,0 +1,86 @@
+<!doctype html>
+<!--
+  YouTube thumbnail (1280x720), rendered to an image by rlvid/thumbnail.py with
+  headless Edge. The background is a frame from the video.
+
+  Query parameters (repeat blue/orange once per player, in display order):
+    bg=<file URL of the frame>
+    blue=Alpha&blue=Bravo&orange=Charlie&orange=Delta
+    big=Alpha        large name (empty = none)
+    size=70          team names font size in px (long names shrink to fit)
+    pos=bottom       team names at the bottom, middle or top (the large name goes opposite)
+    zoom=1           crop to the middle 70% of the frame
+    pop=1            more saturation/contrast and darker edges
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; background: #000; }
+  #thumb { position: absolute; inset: 0; overflow: hidden; color: #fff;
+           font-family: "Segoe UI Black", "Segoe UI", Arial, sans-serif; font-weight: 900; }
+  #bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #vignette { position: absolute; inset: 0; display: none;
+              background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55) 100%); }
+  #teams { position: absolute; left: 0; right: 0; display: flex; }
+  .half { width: 50%; box-sizing: border-box; padding: 0 40px;
+          display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .name { white-space: nowrap; line-height: 1.15; -webkit-text-stroke: 5px #000; paint-order: stroke fill; }
+  #big { position: absolute; left: 0; right: 0; text-align: center; white-space: nowrap;
+         font-size: 150px; line-height: 1; letter-spacing: 2px; text-transform: uppercase;
+         -webkit-text-stroke: 8px #000; paint-order: stroke fill; }
+</style>
+</head>
+<body>
+<div id="thumb">
+  <img id="bg">
+  <div id="vignette"></div>
+  <div id="teams"><div class="half" id="blue"></div><div class="half" id="orange"></div></div>
+  <div id="big"></div>
+</div>
+<script>
+  const q = new URLSearchParams(location.search);
+  const size = parseFloat(q.get("size")) || 70;
+  const pos = ["top", "middle", "bottom"].includes(q.get("pos")) ? q.get("pos") : "bottom";
+
+  const bg = document.getElementById("bg");
+  bg.src = q.get("bg") || "";
+  if (q.get("zoom") === "1") bg.style.transform = "scale(1.43)";
+  if (q.get("pop") === "1") {
+    bg.style.filter = "saturate(1.35) contrast(1.12) brightness(1.03)";
+    document.getElementById("vignette").style.display = "block";
+  }
+
+  for (const side of ["blue", "orange"]) {
+    const col = document.getElementById(side);
+    for (const n of q.getAll(side)) {
+      const el = document.createElement("div");
+      el.className = "name";
+      el.textContent = n;
+      el.style.fontSize = size + "px";
+      col.appendChild(el);
+    }
+  }
+  // Shrink only the names that are wider than their half.
+  for (const el of document.querySelectorAll(".name")) {
+    let s = size;
+    while (el.scrollWidth > 560 && s > 20) el.style.fontSize = --s + "px";
+  }
+
+  const rows = Math.max(q.getAll("blue").length, q.getAll("orange").length, 1);
+  const h = rows * size * 1.15;
+  const teams = document.getElementById("teams");
+  const teamsTop = pos === "top" ? 40 : pos === "bottom" ? 720 - h - 40 : (720 - h) / 2;
+  teams.style.top = teamsTop + "px";
+  teams.style.height = h + "px";
+
+  const big = document.getElementById("big");
+  big.style.top = (pos === "top" ? 720 - 150 - 50 : 50) + "px";
+  const text = document.createElement("span");  // measured on its own: #big spans the full width
+  text.textContent = q.get("big") || "";
+  big.appendChild(text);
+  let bs = 150;  // a long player name shrinks to fit the width
+  while (text.offsetWidth > 1200 && bs > 40) big.style.fontSize = --bs + "px";
+</script>
+</body>
+</html>

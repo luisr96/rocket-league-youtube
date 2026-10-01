@@ -151,6 +151,10 @@ class Recorder:
         time.sleep(ms / 1000 + 0.1)
         log.info("faded in to %r", self.scene)
 
+    def record_seconds(self) -> float:
+        """Length of the recording so far (paused time not counted), in seconds."""
+        return self._status().output_duration / 1000
+
     def _status(self):
         return self.client.get_record_status()
 

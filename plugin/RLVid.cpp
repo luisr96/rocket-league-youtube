@@ -22,6 +22,7 @@
 #include <bakkesmod/plugin/bakkesmodplugin.h>
 #include <bakkesmod/wrappers/includes.h>
 #include <bakkesmod/wrappers/GameObject/ReplayManagerWrapper.h>
+#include <bakkesmod/wrappers/GameEvent/ReplaySoccarWrapper.h>
 
 #include <cctype>
 #include <cmath>
@@ -30,6 +31,8 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <iomanip>
+#include <vector>
 
 class RLVid : public BakkesMod::Plugin::BakkesModPlugin
 {
@@ -43,6 +46,7 @@ private:
     void UpdateKickoff();
     void LogCameraChange(ReplayViewerDataWrapper& viewer);
     void Settle(ReplayViewerDataWrapper& viewer);
+    void TrackGoals();
     CarWrapper TargetCar();
     std::string ViewTargetName();
     std::string DirectorCarName();
@@ -73,6 +77,13 @@ private:
     int settleFixes_ = 0;        // re-applies needed after switches (status file)
     std::string lastSettleLog_;
     std::string lastDirectorView_ = "-";
+
+    // Goals seen while the replay plays (for thumbnails): replay time, team,
+    // scorer and speed (kph).
+    struct Goal { int frame; float elapsed; double wall; int team; std::string scorer, scorerId; float speed; };
+    std::vector<Goal> goals_;
+    int lastScore_[2] = {-1, -1};
+    float lastBallSpeed_ = 0;
     std::string lastLoggedMode_, lastLoggedName_;        // times the view had to be put back after locking
     std::string lastEvent_ = "loaded";
     std::chrono::steady_clock::time_point lastWrite_{};
@@ -176,6 +187,9 @@ void RLVid::Play(const std::string& path, const std::string& target, float kicko
     inKickoff_ = wasKickoff_ = false;
     releaseFrame_ = -1;
     settleTicks_ = settleFixes_ = 0;
+    goals_.clear();
+    lastScore_[0] = lastScore_[1] = -1;
+    lastBallSpeed_ = 0;
     lastEvent_ = "play_requested";
     cvarManager->log("rlvid_play: " + path + " target " + target);
     rm.PlayReplayFile(path);
@@ -240,6 +254,7 @@ void RLVid::Enforce()
         if (focusId_.empty()) return;  // players not replicated yet; try next frame
     }
     UpdateKickoff();
+    TrackGoals();
     bool changed = false, deliberate = false;
     if (inKickoff_) {
         // Clear the focus too: with the target still focused, the game treats the
@@ -355,6 +370,53 @@ std::string RLVid::FocusedName()
     auto pri = car.GetPRI();
     if (!pri) return "";
     return pri.GetPlayerName().ToString();
+}
+
+// Goals, detected as a team's score going up. The game's live score data is
+// not filled in during replay playback, so the scorer comes from the replay
+// file's own goal list (frame + player name), matched by team and nearest
+// frame, and the speed is the ball's speed on the tick before the goal.
+void RLVid::TrackGoals()
+{
+    auto server = gameWrapper->GetGameEventAsReplay();
+    if (!server) return;
+    auto teams = server.GetTeams();
+    if (teams.Count() < 2) return;
+
+    for (int t = 0; t < 2; ++t) {
+        auto team = teams.Get(t);
+        if (!team) continue;
+        int idx = team.GetTeamNum2() == 1 ? 1 : 0;
+        int score = team.GetScore();
+        if (lastScore_[idx] >= 0 && score == lastScore_[idx] + 1) {
+            // wall = real time (Unix seconds) when the goal was seen; the video runs in real
+            // time, while the replay's own elapsed time does not advance steadily.
+            double wall = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+            Goal g{server.GetCurrentReplayFrame(), server.GetReplayTimeElapsed(), wall, idx, "", "", lastBallSpeed_ * 0.036f};
+            auto replay = server.GetReplay();
+            if (replay) {
+                int best = 1 << 30;
+                for (auto& sg : ReplaySoccarWrapper(replay.memory_address).GetGoals()) {
+                    int d = std::abs(sg.frame - g.frame);
+                    if (sg.player_team == idx && d < best && d < 300) { best = d; g.scorer = sg.player_name; }
+                }
+            }
+            auto pris = server.GetPRIs();
+            for (int i = 0; i < pris.Count() && !g.scorer.empty(); ++i) {
+                auto pri = pris.Get(i);
+                if (pri && pri.GetTeamNum() == idx && NameKey(pri.GetPlayerName().ToString()) == NameKey(g.scorer)) {
+                    g.scorerId = "Player_" + pri.GetUniqueIdWrapper().GetIdString();
+                    g.scorer = pri.GetPlayerName().ToString();  // as the game shows it
+                }
+            }
+            goals_.push_back(g);
+            cvarManager->log("rlvid goal: frame " + std::to_string(g.frame) + " team " + std::to_string(idx)
+                             + " by '" + g.scorer + "' (" + g.scorerId + ") " + std::to_string((int)g.speed) + " kph");
+        }
+        lastScore_[idx] = score;
+    }
+    auto ball = server.GetBall();
+    if (ball) lastBallSpeed_ = ball.GetVelocity().magnitude();  // uu/s; kept while the ball is gone after a goal
 }
 
 CarWrapper RLVid::TargetCar()
@@ -524,8 +586,20 @@ void RLVid::WriteStatus()
     }
     players << "]";
 
+    std::ostringstream goals;
+    goals << "[";
+    for (size_t i = 0; i < goals_.size(); ++i) {
+        auto& g = goals_[i];
+        goals << (i ? ", " : "") << "{\"frame\": " << g.frame << ", \"elapsed\": " << g.elapsed
+              << ", \"wall\": " << std::fixed << std::setprecision(3) << g.wall << std::defaultfloat
+              << ", \"team\": " << g.team << ", \"scorer\": \"" << JsonEscape(g.scorer)
+              << "\", \"scorer_id\": \"" << JsonEscape(g.scorerId) << "\", \"speed\": " << g.speed << "}";
+    }
+    goals << "]";
+
     std::ostringstream js;
     js << "{\"in_replay\": " << (inReplay ? "true" : "false")
+       << ", \"goals\": " << goals.str()
        << ", \"players\": " << players.str()
        << ", \"frame\": " << frame
        << ", \"num_frames\": " << numFrames
