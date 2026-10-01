@@ -66,6 +66,28 @@ hold_seconds = 4          # fully visible for this long
 fade_out_seconds = 2      # then fades out over this long
 fade_in_seconds = 0       # 0 = appears at once
 
+[hud]
+# Broadcast overlay over the game (overlay/hud.html, an OBS Browser Source created
+# if missing): scoreboard with a branding line, player panels with live boost, a
+# stats bar for the POV player and a glitch intro with all names at the start of
+# each game. Replaces the [overlay] names overlay while enabled.
+enabled = true
+source = "RLVid HUD"
+port = 8765                   # local web server the overlay reads its live data from
+style = "neon"                # neon, esports or bold
+brand = "Like, comment & subscribe!"
+# strip: in a solid strip under the scoreboard with "SSL 2v2", which together with
+# the scoreboard covers the game's own scoreboard at scale 1. Also: above, below, beside.
+brand_position = "strip"
+separator = "pill"            # in the strip: pill ("SSL 2v2" in an outlined box), dot, line, slash, diamond or none
+alpha = 2.0                   # panel opacity (1 = as designed, 1.85+ = fully solid)
+scale = 1.0                   # scoreboard size (1.0 is the smallest that covers the game's scoreboard with the strip)
+top = 0                       # scoreboard distance from the top, px
+# The game's scoreboard can be hidden, but its boost meter goes with it; we keep both
+# and cover the scoreboard instead.
+hide_game_scoreboard = false
+intro_seconds = 4             # how long the intro stays up
+
 [thumbnail]
 # YouTube thumbnail candidates (1280x720 JPG) saved next to each video, taken
 # around the target's fastest goal in game 1 (else a teammate's goal in game 1,

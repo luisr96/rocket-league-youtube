@@ -6,7 +6,8 @@ import time
 from datetime import date, datetime
 from pathlib import Path
 
-from . import game, metadata, obs, overlay, thumbnail, video, youtube
+from . import describe, game, metadata, obs, overlay, thumbnail, video, youtube
+from .hudserver import HudServer
 from .api import ApiError, Ballchasing
 from .bakkes import BakkesError, read_status
 from .config import ConfigError, load_config
@@ -102,10 +103,19 @@ def process(pair: Pair, cfg, api, history) -> bool:
     debug = cfg.raw["recording"].get("debug_seconds", 0)
     fade_ms = o.get("transition_ms", 0)
     ov = cfg.raw.get("overlay", {})
-    if ov.get("enabled", True):
+    h = cfg.raw.get("hud", {})
+    hud = None
+    if h.get("enabled", True):
+        # The broadcast overlay (scoreboard, players, stats, intro) replaces the names overlay.
+        hud = HudServer(int(h.get("port", 8765)))
+        hud.start()
+        recorder.setup_overlay(h.get("source", "RLVid HUD"), hud_url(hud, h))
+        recorder.hide_source(ov.get("source", "RLVid Names"))
+    elif ov.get("enabled", True):
         recorder.setup_overlay(ov["source"], overlay.url(ov))
     rcon = game.ensure_game(g)
     rcon.send(f"rlvid_kickoff_keep_focus {int(bool(cfg.raw.get('camera', {}).get('kickoff_keep_focus', False)))}")
+    rcon.send(f"rlvid_hide_scoreboard {int(bool(hud and h.get('hide_game_scoreboard', False)))}")
     games = []  # per-game data for the <video>.json file
     try:
         for i, (m, replay) in enumerate(zip(pair.matches, replays), 1):
@@ -126,7 +136,12 @@ def process(pair: Pair, cfg, api, history) -> bool:
                     time.sleep(0.3)  # a moment of black between the games
                     recorder.fade_in(fade_ms)  # onto the held kickoff frame
             players = (read_status() or {}).get("players")  # names as the game shows them
-            if ov.get("enabled", True):
+            if hud:
+                blue, orange = overlay.sides(m, players)
+                pov = (blue if metadata.target_team(m) == "blue" else orange)[0]
+                hud.set_game(m.camera_focus_id, m.camera_player, hud_label(cfg, m))
+                hud.show_intro(i, pov.upper(), blue, orange)
+            elif ov.get("enabled", True):
                 recorder.show_overlay(ov["source"], overlay.url(ov, m, players))  # fades out by itself
             time.sleep(0.5)
             # Where this game starts in the video: the recording length and the
@@ -154,6 +169,8 @@ def process(pair: Pair, cfg, api, history) -> bool:
         raise
     finally:
         rcon.close()
+        if hud:
+            hud.stop()
 
     final = video_path(cfg, pair, suffix="_debug" if debug else "")
     print("Finalizing video ...")
@@ -183,6 +200,21 @@ def process(pair: Pair, cfg, api, history) -> bool:
     log.info("done: %s", final)
     game.close_game()
     return True
+
+
+def hud_url(hud: HudServer, h: dict) -> str:
+    from urllib.parse import urlencode
+    q = {"style": h.get("style", "neon"), "brand": h.get("brand", "Like, comment & subscribe!"),
+         "alpha": h.get("alpha", 2.0), "scale": h.get("scale", 1.0), "top": h.get("top", 0),
+         "brandpos": h.get("brand_position", "strip"), "sep": h.get("separator", "pill"), "hold": h.get("intro_seconds", 4)}
+    return hud.url + "?" + urlencode(q)
+
+
+def hud_label(cfg, m: Match) -> str:
+    """The line under the scoreboard, e.g. "SSL 2v2"."""
+    s = cfg.search
+    rank = m.rank or (s.get("min_rank", "") if s.get("min_rank") == s.get("max_rank") else "")
+    return f"{describe.rank_names(rank)[0]} {m.mode}".strip()
 
 
 def make_thumbnails(cfg, ffmpeg: str, final: Path) -> None:

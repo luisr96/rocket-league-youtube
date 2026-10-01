@@ -116,7 +116,17 @@ class Recorder:
             self.client.set_scene_item_transform(scene, item, {"positionX": 0, "positionY": 0,
                                                                "scaleX": base / 1920, "scaleY": base / 1920})
         except Exception as e:
-            raise ObsError(f"cannot set up the names overlay {source!r}: {e}") from e
+            raise ObsError(f"cannot set up the overlay {source!r}: {e}") from e
+
+    def hide_source(self, source: str) -> None:
+        """Turn off a source in the current scene if it is there (e.g. the old names overlay)."""
+        try:
+            scene = self.client.get_current_program_scene().current_program_scene_name
+            if source in [i["sourceName"] for i in self.client.get_scene_item_list(scene).scene_items]:
+                item = self.client.get_scene_item_id(scene, source).scene_item_id
+                self.client.set_scene_item_enabled(scene, item, False)
+        except Exception as e:
+            log.warning("could not hide OBS source %r: %s", source, e)
 
     def show_overlay(self, source: str, url: str) -> None:
         """Load `url` into the overlay; the page shows the names and fades them out by itself."""

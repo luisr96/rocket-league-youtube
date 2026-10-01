@@ -55,6 +55,7 @@ private:
     void Release();
     void Tick();
     void WriteStatus();
+    void WriteHud();
     ReplayViewerDataWrapper Viewer();
     std::string FocusedName();
     std::filesystem::path StatusPath();
@@ -68,7 +69,8 @@ private:
     bool holdAtStart_ = false;   // pause on the first frame until rlvid_release
     float kickoffSeconds_ = 0;   // >0: Director camera on kickoffs until this long after the first touch
     bool inKickoff_ = false;
-    bool kickoffKeepFocus_ = false;  // rlvid_kickoff_keep_focus 1: keep the target focused during the kickoff Director
+    bool kickoffKeepFocus_ = false;
+    bool hideScoreboard_ = false;    // rlvid_hide_scoreboard 1: the game's match info (scoreboard) off  // rlvid_kickoff_keep_focus 1: keep the target focused during the kickoff Director
     bool wasKickoff_ = false;
     int releaseFrame_ = -1;
     int settleTicks_ = 0;        // >0: just switched to Player View; check the car actually shown each tick
@@ -87,6 +89,7 @@ private:
     std::string lastLoggedMode_, lastLoggedName_;        // times the view had to be put back after locking
     std::string lastEvent_ = "loaded";
     std::chrono::steady_clock::time_point lastWrite_{};
+    std::chrono::steady_clock::time_point lastHud_{};
 };
 
 BAKKESMOD_PLUGIN(RLVid, "RLVid replay recorder helper", "1.1", PLUGINTYPE_REPLAY)
@@ -138,6 +141,12 @@ void RLVid::onLoad()
         kickoffKeepFocus_ = cvar.getBoolValue();
     });
 
+    cvarManager->registerCvar("rlvid_hide_scoreboard", "0",
+        "1: hide the game's scoreboard (match info) in replays, e.g. when an overlay draws its own",
+        true, true, 0, true, 1).addOnValueChanged([this](std::string, CVarWrapper cvar) {
+        hideScoreboard_ = cvar.getBoolValue();
+    });
+
     cvarManager->registerNotifier("rlvid_info", [this](std::vector<std::string>) {
         Info();
     }, "Log replay camera/player diagnostics", PERMISSION_ALL);
@@ -156,6 +165,10 @@ void RLVid::Tick()
 {
     Enforce();
     auto now = std::chrono::steady_clock::now();
+    if (now - lastHud_ >= std::chrono::milliseconds(33)) {  // ~30 times a second, so boost keeps up
+        lastHud_ = now;
+        WriteHud();
+    }
     if (now - lastWrite_ < std::chrono::milliseconds(500)) return;
     lastWrite_ = now;
     WriteStatus();
@@ -247,7 +260,7 @@ void RLVid::Enforce()
 
     if (viewer.GetbShowReplayHUD()) viewer.SetShowReplayHUD(0);
     if (!viewer.GetbShowPlayerNames()) viewer.SetShowPlayerNames(1);
-    if (!viewer.GetbShowMatchInfoHUD()) viewer.SetShowMatchInfoHUD(1);
+    if ((bool)viewer.GetbShowMatchInfoHUD() == hideScoreboard_) viewer.SetShowMatchInfoHUD(hideScoreboard_ ? 0 : 1);
 
     if (focusId_.empty()) {
         focusId_ = ResolveTarget();
@@ -521,6 +534,68 @@ void RLVid::Info()
                              + " id " + pri.GetUniqueIdWrapper().GetIdString());
         }
     }
+}
+
+// Live data for the broadcast overlay (overlay/hud.html), written ~30 times a
+// second to bakkesmod/data/rlvid_hud.json: scores, clock, and each player's
+// team, boost (0-100, rounded down like the game's boost meter; -1 while their
+// car is gone) and match stats.
+void RLVid::WriteHud()
+{
+    std::ostringstream js;
+    bool inReplay = gameWrapper->IsInReplay();
+    js << "{\"in_replay\": " << (inReplay ? "true" : "false");
+    if (inReplay) {
+        auto server = gameWrapper->GetGameEventAsReplay();
+        if (server) {
+        int score[2] = {0, 0};
+        auto teams = server.GetTeams();
+        for (int t = 0; t < teams.Count(); ++t) {
+            auto team = teams.Get(t);
+            if (team) score[team.GetTeamNum2() == 1 ? 1 : 0] = team.GetScore();
+        }
+        js << ", \"score\": {\"blue\": " << score[0] << ", \"orange\": " << score[1] << "}"
+           << ", \"clock\": " << server.GetSecondsRemaining()
+           << ", \"overtime\": " << (server.GetbOverTime() ? "true" : "false")
+           << ", \"players\": [";
+        auto pris = server.GetPRIs();
+        bool first = true;
+        for (int i = 0; i < pris.Count(); ++i) {
+            auto pri = pris.Get(i);
+            if (!pri) continue;
+            int team = pri.GetTeamNum();
+            if (team != 0 && team != 1) continue;  // spectators
+            float boost = -1;
+            auto car = pri.GetCar();
+            if (car) {
+                auto b = car.GetBoostComponent();
+                if (b) {
+                    boost = b.GetCurrentBoostAmount();
+                    if (boost <= 1.0f) boost *= 100;  // 0-1 in most versions
+                }
+            }
+            js << (first ? "" : ", ") << "{\"name\": \"" << JsonEscape(pri.GetPlayerName().ToString())
+               << "\", \"id\": \"Player_" << JsonEscape(pri.GetUniqueIdWrapper().GetIdString())
+               << "\", \"team\": " << team << ", \"boost\": " << (boost < 0 ? -1 : (int)std::floor(boost + 1e-3f))
+               << ", \"score\": " << pri.GetMatchScore() << ", \"goals\": " << pri.GetMatchGoals()
+               << ", \"assists\": " << pri.GetMatchAssists() << ", \"saves\": " << pri.GetMatchSaves()
+               << ", \"shots\": " << pri.GetMatchShots() << "}";
+            first = false;
+        }
+        js << "]";
+        }
+    }
+    js << ", \"time\": " << (long long)std::time(nullptr) << "}";
+
+    auto path = gameWrapper->GetDataFolder() / "rlvid_hud.json";
+    auto tmp = path;
+    tmp += ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::trunc);
+        f << js.str();
+    }
+    std::error_code ec;
+    std::filesystem::rename(tmp, path, ec);
 }
 
 void RLVid::WriteStatus()

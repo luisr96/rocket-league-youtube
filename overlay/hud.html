@@ -1,0 +1,423 @@
+<!doctype html>
+<!--
+  Broadcast-style HUD over the game (an OBS Browser Source, 1920x1080):
+  scoreboard with a branding line, player panels with live boost, a stats bar
+  for the featured player, and a glitch-style intro with all players' names.
+
+  The game's own scoreboard is hidden by the RLVid plugin; this replaces it.
+
+  Query parameters:
+    style=esports|neon|bold   look (default neon)
+    brand=LIKE, COMMENT & SUBSCRIBE!
+    label=SSL 2v2             line under the scoreboard
+    hold=4                    seconds the intro stays up
+    alpha=2                   panel opacity multiplier (0.2 = very see-through, 1 = as designed);
+                              the score and clock boxes are always solid, to cover the game's scoreboard
+    scale=1                   size of the scoreboard (top centre)
+    top=0                     distance of the scoreboard from the top, px
+    brandpos=strip            branding line: "strip" = in a solid strip under the scoreboard, centred
+                              together with the label ("SSL 2v2 · LIKE, COMMENT & SUBSCRIBE!"), which with
+                              the scoreboard covers the game's own scoreboard at scale 1; or above, below,
+                              beside (the label)
+    sep=pill                  separator between the label and the branding in the strip:
+                              pill (label in an outlined box), dot, line, slash, diamond or none
+    meter=off                 POV boost meter in the bottom-right corner, replacing the game's (hidden
+                              together with its scoreboard): ring, segments, bar or off
+  The look can also be changed live with postMessage({alpha, scale, top, brandpos}).
+    demo=1                    fake, animated data (for previewing the design)
+
+  Data: without demo=1 the page reads /state from the local server started by
+  the recorder (rlvid/hudserver.py) ~30 times a second; render(state) draws it
+  (see DEMO below for the shape). state.intro {id, match, pov, blue, orange}
+  plays the intro whenever its id changes.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    --blue: #2f8cff; --orange: #ff7a1a; --text: #fff; --muted: rgba(255,255,255,.7);
+    --panel: rgba(10,14,24,calc(.78 * var(--a))); --panel2: rgba(20,26,40,calc(.85 * var(--a))); --line: rgba(255,255,255,.12);
+    --font: "Segoe UI", Arial, sans-serif; --heavy: "Segoe UI Black", "Segoe UI", Arial, sans-serif;
+    --radius: 6px; --skew: 0deg; --a: 2; --scale: 1; --top: 0px;
+  }
+  html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: transparent;
+               font-family: var(--font); color: var(--text); }
+  body.off #score, body.off .players, body.off #stats { visibility: hidden; }  /* not in a replay */
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ---------- Scoreboard ---------- */
+  #score { position: absolute; top: var(--top); left: 50%; transform: translateX(-50%) scale(var(--scale));
+           transform-origin: top center; text-align: center; display: flex; flex-direction: column; align-items: center; }
+  #score.below #brand { order: 3; margin: 6px 0 0; }
+  #sub { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 6px; }
+  #sub #label { margin-top: 0; }
+  #sub #brand { margin: 0; }
+  /* strip: one solid, centred plate under the scoreboard bar */
+  #score.strip #sub { margin-top: 0; gap: 14px; padding: 8px 26px 10px; min-width: 440px; box-sizing: border-box;
+                      background: rgb(10,14,24); border-radius: 0 0 var(--radius) var(--radius); }
+  #score.strip #label { background: none; padding: 0; color: #fff; }
+  #score.strip #brand { color: var(--muted); }
+  #score.strip #sub::before { content: ""; order: 2; width: 5px; height: 5px; border-radius: 50%; background: var(--muted); }
+  #score.strip #brand { order: 3; }
+  /* separators */
+  #score.strip.sep-none #sub::before { display: none; }
+  #score.strip.sep-none #sub { gap: 22px; }
+  #score.strip.sep-line #sub::before { width: 2px; height: 16px; border-radius: 1px; background: rgba(255,255,255,.45); }
+  #score.strip.sep-slash #sub::before { width: 2px; height: 18px; border-radius: 1px; background: rgba(255,255,255,.45);
+                                        transform: skewX(-20deg); }
+  #score.strip.sep-diamond #sub::before { width: 6px; height: 6px; border-radius: 1px; transform: rotate(45deg);
+                                          background: linear-gradient(135deg, var(--blue), var(--orange)); }
+  #score.strip.sep-pill #sub::before { display: none; }
+  #score.strip.sep-pill #label { border: 1.5px solid rgba(255,255,255,.4); border-radius: 4px; padding: 1px 9px; }
+  body.esports #score.strip #sub { background: rgb(20,26,40); }
+  body.bold #score.strip #sub { background: #111; transform: skewX(var(--skew)); }
+  #brand { font: 800 15px var(--font); letter-spacing: 3px; text-transform: uppercase; color: var(--muted);
+           margin-bottom: 6px; }
+  #bar { display: flex; align-items: stretch; height: 56px; transform: skewX(var(--skew)); }
+  #bar > div { display: flex; align-items: center; justify-content: center; }
+  .tname { width: 230px; font: 900 20px var(--heavy); letter-spacing: 2px; text-transform: uppercase;
+           background: var(--panel); }
+  .tscore { width: 70px; font: 900 38px var(--heavy); }
+  #bblue .tscore, .tscore.blue { background: var(--blue); }
+  .tscore.blue { background: rgb(47,140,255); }      /* solid: covers the game's scores */
+  .tscore.orange { background: rgb(255,122,26); }
+  .tname.blue { border-left: 6px solid var(--blue); border-radius: var(--radius) 0 0 var(--radius); }
+  .tname.orange { border-right: 6px solid var(--orange); border-radius: 0 var(--radius) var(--radius) 0; }
+  #clock { width: 130px; font: 800 32px var(--font); background: rgb(20,26,40); }  /* solid: covers the game's clock */
+  #clock.ot { color: #ffd34d; }
+  #label { margin-top: 6px; display: inline-block; padding: 3px 14px; font: 800 14px var(--font);
+           letter-spacing: 3px; background: var(--panel); border-radius: var(--radius); color: var(--muted); }
+  .flash { animation: flash .9s ease-out; }
+  @keyframes flash { 0% { filter: brightness(2.2); transform: scale(1.25); } 100% { filter: none; transform: none; } }
+
+  /* ---------- Player panels ---------- */
+  .players { position: absolute; top: 18px; width: 330px; display: flex; flex-direction: column; gap: 8px; }
+  #pblue { left: 22px; } #porange { right: 22px; }
+  .pl { background: var(--panel); border-radius: var(--radius); padding: 8px 12px 9px; position: relative;
+        transform: skewX(var(--skew)); }
+  #pblue .pl { border-left: 5px solid var(--blue); } #porange .pl { border-right: 5px solid var(--orange); text-align: right; }
+  .pl .row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  #porange .pl .row { flex-direction: row-reverse; }
+  .pl .nm { font: 800 20px var(--font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pl .bn { font: 800 18px var(--font); color: var(--muted); }
+  .pl .track { margin-top: 6px; height: 8px; background: rgba(255,255,255,.12); border-radius: 4px; overflow: hidden; }
+  .pl .fill { height: 100%; width: 0; transition: width .05s linear; border-radius: 4px; }
+  #pblue .fill { background: linear-gradient(90deg, #1d5fd1, var(--blue)); }
+  #porange .fill { background: linear-gradient(270deg, #d14e0a, var(--orange)); margin-left: auto; }
+  .pl.pov::after { content: "POV"; position: absolute; top: -9px; font: 900 11px var(--font); letter-spacing: 1px;
+                   background: #fff; color: #000; padding: 1px 6px; border-radius: 3px; }
+  #pblue .pl.pov::after { right: 10px; } #porange .pl.pov::after { left: 10px; }
+
+  /* ---------- Stats bar (featured player) ---------- */
+  #stats { position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%) skewX(var(--skew));
+           display: flex; align-items: stretch; background: var(--panel); border-radius: var(--radius); overflow: hidden; }
+  #stats .who { padding: 8px 18px; font: 900 20px var(--heavy); letter-spacing: 1px; text-transform: uppercase;
+                display: flex; align-items: center; }
+  #stats .st { padding: 6px 16px; text-align: center; border-left: 1px solid var(--line); }
+  #stats .st b { display: block; font: 800 22px var(--font); }
+  #stats .st i { font: 700 11px var(--font); font-style: normal; letter-spacing: 2px; color: var(--muted); text-transform: uppercase; }
+
+  /* ---------- Boost meter (POV player) ---------- */
+  #meter { position: absolute; right: 44px; bottom: 40px; display: none; --mc: var(--orange); }
+  #meter.on { display: block; }
+  #meter.blue { --mc: var(--blue); }
+  #meter .ringbox { position: relative; width: 250px; height: 250px; }
+  #meter svg { position: absolute; inset: 0; overflow: visible; }
+  #meter .track { fill: none; stroke: rgba(255,255,255,.13); stroke-width: 16; }
+  #meter .arc { fill: none; stroke: var(--mc); stroke-width: 16; transition: stroke-dashoffset .05s linear;
+                filter: drop-shadow(0 0 10px var(--mc)); }
+  #meter .disc { fill: rgba(8,12,22,calc(.55 * var(--a))); }
+  #meter .val { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+                justify-content: center; padding-bottom: 10px; }
+  #meter .val b { font: 900 76px var(--heavy); line-height: 1; text-shadow: 0 0 18px var(--mc); }
+  #meter .val i { font: 800 15px var(--font); font-style: normal; letter-spacing: 5px; color: var(--muted); margin-top: 2px; }
+  #meter.full .arc { animation: fullpulse .8s ease-in-out infinite alternate; }
+  @keyframes fullpulse { from { filter: drop-shadow(0 0 8px var(--mc)); } to { filter: drop-shadow(0 0 22px var(--mc)) brightness(1.3); } }
+  /* bar version */
+  #meter .barbox { display: none; width: 360px; padding: 12px 16px 14px; background: var(--panel); border-radius: var(--radius);
+                   border-right: 5px solid var(--mc); }
+  #meter.bar .ringbox { display: none; } #meter.bar .barbox { display: block; }
+  #meter .barbox .row { display: flex; justify-content: space-between; align-items: baseline; }
+  #meter .barbox b { font: 900 46px var(--heavy); line-height: 1; text-shadow: 0 0 14px var(--mc); }
+  #meter .barbox i { font: 800 14px var(--font); font-style: normal; letter-spacing: 5px; color: var(--muted); }
+  #meter .barbox .t { margin-top: 10px; height: 14px; background: rgba(255,255,255,.12); border-radius: 7px; overflow: hidden; }
+  #meter .barbox .f { height: 100%; width: 0; background: var(--mc); box-shadow: 0 0 14px var(--mc); transition: width .05s linear; }
+  body.neon #meter .barbox { backdrop-filter: blur(8px); }
+  body.off #meter { visibility: hidden; }
+
+  /* ---------- Intro (glitch) ---------- */
+  #intro { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; }
+  #intro.on { display: flex; }
+  #intro .band { position: absolute; left: 0; right: 0; top: 50%; height: 440px; transform: translateY(-50%);
+                 background: linear-gradient(90deg, rgba(47,140,255,.0), rgba(8,10,18,.82) 22%, rgba(8,10,18,.82) 78%, rgba(255,122,26,0)); }
+  #intro .head { position: relative; font: 900 30px var(--heavy); letter-spacing: 8px; text-transform: uppercase; margin-bottom: 26px; }
+  #intro .head span { color: var(--muted); }
+  #intro .teams { position: relative; display: flex; width: 1920px; }
+  #intro .side { width: 50%; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  #intro .vs { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); font: 900 44px var(--heavy);
+               color: var(--muted); letter-spacing: 4px; }
+  .g { position: relative; font: 900 78px var(--heavy); line-height: 1.12; white-space: nowrap; }
+  #intro .side.blue .g { text-shadow: 0 0 24px rgba(47,140,255,.55); }
+  #intro .side.orange .g { text-shadow: 0 0 24px rgba(255,122,26,.55); }
+  #intro .side.blue .tag, #intro .side.orange .tag { font: 900 18px var(--font); letter-spacing: 6px; margin-bottom: 6px; }
+  #intro .side.blue .tag { color: var(--blue); } #intro .side.orange .tag { color: var(--orange); }
+
+  /* The glitch: red/cyan copies of the text, sliced and shifted, plus a jitter of the whole block. */
+  .g::before, .g::after { content: attr(data-text); position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+                          opacity: 0; pointer-events: none; }
+  .g::before { color: #ff2d55; }
+  .g::after { color: #00e5ff; }
+  .glitching .g::before { opacity: .85; animation: sliceA .09s steps(1) infinite; }
+  .glitching .g::after { opacity: .85; animation: sliceB .11s steps(1) infinite; }
+  @keyframes sliceA {
+    0% { clip-path: inset(10% 0 70% 0); transform: translate(-9px, -2px); }
+    25% { clip-path: inset(55% 0 20% 0); transform: translate(7px, 1px); }
+    50% { clip-path: inset(30% 0 45% 0); transform: translate(-5px, 2px); }
+    75% { clip-path: inset(75% 0 5% 0); transform: translate(10px, -1px); }
+  }
+  @keyframes sliceB {
+    0% { clip-path: inset(65% 0 10% 0); transform: translate(8px, 2px); }
+    25% { clip-path: inset(5% 0 75% 0); transform: translate(-10px, -1px); }
+    50% { clip-path: inset(40% 0 35% 0); transform: translate(6px, 0); }
+    75% { clip-path: inset(20% 0 60% 0); transform: translate(-7px, 2px); }
+  }
+  .glitching { animation: shock .16s steps(2) infinite; }
+  @keyframes shock {
+    0% { transform: translate(0,0) skewX(0); filter: brightness(1.6) contrast(1.4); }
+    33% { transform: translate(-6px, 2px) skewX(-6deg); filter: brightness(.7); }
+    66% { transform: translate(5px, -1px) skewX(4deg); filter: brightness(1.9) hue-rotate(15deg); }
+  }
+  /* Static lines that flash over the intro while it glitches. */
+  #static { position: absolute; inset: 0; pointer-events: none; opacity: 0;
+            background: repeating-linear-gradient(0deg, rgba(255,255,255,.10) 0 2px, transparent 2px 5px); }
+  .glitching #static { opacity: 1; animation: staticMove .07s steps(2) infinite; }
+  @keyframes staticMove { 0% { background-position: 0 0; } 100% { background-position: 0 9px; } }
+  .collapse { animation: collapse .22s ease-in forwards; }
+  @keyframes collapse { 0% { transform: scaleY(1); filter: brightness(2); } 60% { transform: scaleY(.04) scaleX(1.05); }
+                        100% { transform: scaleY(0) scaleX(0); opacity: 0; } }
+
+  /* ---------- Styles ---------- */
+  /* neon: dark glass, glowing team edges */
+  body.neon { --panel: rgba(8,12,22,calc(.55 * var(--a))); --panel2: rgba(8,12,22,calc(.65 * var(--a))); --radius: 12px; }
+  body.neon .tname, body.neon #clock, body.neon .pl, body.neon #stats, body.neon #label { backdrop-filter: blur(8px); }
+  body.neon .tscore.blue { box-shadow: 0 0 22px rgba(47,140,255,.9); }
+  body.neon .tscore.orange { box-shadow: 0 0 22px rgba(255,122,26,.9); }
+  body.neon #clock { background: rgb(10,14,24); }
+  body.neon #pblue .pl { box-shadow: -4px 0 18px rgba(47,140,255,.6); }
+  body.neon #porange .pl { box-shadow: 4px 0 18px rgba(255,122,26,.6); }
+  body.neon #stats { box-shadow: 0 0 24px rgba(0,229,255,.35); border: 1px solid rgba(0,229,255,.35); }
+  /* bold: solid team colours, slanted, chunky italic type */
+  body.bold { --panel: rgba(12,12,16,calc(.92 * var(--a))); --panel2: rgba(255,255,255,calc(.3 + .7 * var(--a))); --radius: 0; --skew: -12deg; }
+  body.bold #clock { color: #111; }
+  body.bold .tname, body.bold .pl .nm, body.bold #stats .who { font-style: italic; }
+  body.bold .tname.blue { background: rgba(47,140,255,calc(.3 + .7 * var(--a))); border: 0; }
+  body.bold .tname.orange { background: rgba(255,122,26,calc(.3 + .7 * var(--a))); border: 0; }
+  body.bold .tscore.blue, body.bold .tscore.orange { background: #111; }
+  body.bold #clock { background: #fff; }
+  body.bold #stats .who { background: #fff; color: #111; }
+</style>
+</head>
+<body>
+<div id="score">
+  <div id="brand"></div>
+  <div id="bar">
+    <div class="tname blue" id="nblue">BLUE TEAM</div><div class="tscore blue num" id="sblue">0</div>
+    <div id="clock" class="num">5:00</div>
+    <div class="tscore orange num" id="sorange">0</div><div class="tname orange" id="norange">ORANGE TEAM</div>
+  </div>
+  <div id="sub"><div id="label"></div></div>
+</div>
+<div class="players" id="pblue"></div>
+<div class="players" id="porange"></div>
+<div id="stats"></div>
+<div id="meter"><div class="ringbox"><svg viewBox="0 0 250 250">
+    <circle class="disc" cx="125" cy="125" r="92"/>
+    <circle class="track" cx="125" cy="125" r="108"/><circle class="arc" cx="125" cy="125" r="108"/></svg>
+    <div class="val"><b class="num">0</b><i>BOOST</i></div></div>
+  <div class="barbox"><div class="row"><i>BOOST</i><b class="num">0</b></div><div class="t"><div class="f"></div></div></div></div>
+<div id="intro"><div class="band"></div><div class="head"></div><div class="teams">
+  <div class="side blue"></div><div class="vs">VS</div><div class="side orange"></div></div><div id="static"></div></div>
+
+<script>
+  const q = new URLSearchParams(location.search);
+  document.body.className = ["esports", "neon", "bold"].includes(q.get("style")) ? q.get("style") : "neon";
+  document.getElementById("brand").textContent = q.get("brand") || "Like, comment & subscribe!";
+  document.getElementById("label").textContent = q.get("label") || "";
+  if (!q.get("label")) document.getElementById("label").style.display = "none";
+  const HOLD = parseFloat(q.get("hold")) || 4;
+
+  // Boost meter: a 270-degree arc (open at the bottom), like the game's.
+  const R = 108, CIRC = 2 * Math.PI * R, SPAN = .75 * CIRC, TICKS = 30, GAP = 4;
+  // Dash pattern for the first n of TICKS ticks, then nothing for the rest of the circle.
+  const ticks = n => Array.from({ length: TICKS }, (_, i) => i < n ? `${SPAN / TICKS - GAP} ${GAP}` : `0 ${SPAN / TICKS}`)
+                          .join(" ") + ` 0 ${CIRC}`;
+  function meterShape(kind) {
+    const m = document.getElementById("meter");
+    m.classList.toggle("on", !!kind && kind !== "off");
+    m.classList.toggle("bar", kind === "bar");
+    m.dataset.kind = kind || "off";
+    for (const el of m.querySelectorAll(".arc, .track"))
+      el.setAttribute("transform", "rotate(135 125 125)");  // from bottom-left round to bottom-right
+    m.querySelector(".track").style.strokeDasharray = kind === "segments" ? ticks(TICKS) : `${SPAN} ${CIRC}`;
+    m.querySelector(".arc").style.strokeLinecap = kind === "segments" ? "butt" : "round";
+  }
+  function meterValue(boost, team) {
+    const m = document.getElementById("meter");
+    if (!m.classList.contains("on") || boost == null || boost < 0) return;
+    const v = Math.max(0, Math.min(100, boost));
+    m.classList.toggle("blue", team === 0);
+    m.classList.toggle("full", v >= 100);
+    for (const b of m.querySelectorAll("b")) b.textContent = Math.floor(v);
+    m.querySelector(".f").style.width = v + "%";
+    m.querySelector(".arc").style.strokeDasharray =
+      m.dataset.kind === "segments" ? ticks(Math.ceil(TICKS * v / 100)) : `${SPAN * v / 100} ${CIRC}`;
+  }
+
+  // Look: opacity, scoreboard size/position, branding line placement.
+  function look(o) {
+    const r = document.documentElement.style;
+    if (o.alpha != null) r.setProperty("--a", o.alpha);
+    if (o.scale != null) r.setProperty("--scale", o.scale);
+    if (o.top != null) r.setProperty("--top", o.top + "px");
+    if (o.meter != null) meterShape(o.meter);
+    if (o.brandpos) {
+      const score = document.getElementById("score"), brand = document.getElementById("brand");
+      if (o.brandpos === "beside" || o.brandpos === "strip") document.getElementById("sub").appendChild(brand);
+      else score.insertBefore(brand, document.getElementById("bar"));
+      score.classList.toggle("below", o.brandpos === "below");
+      score.classList.toggle("strip", o.brandpos === "strip");
+    }
+    if (o.sep) {
+      const score = document.getElementById("score");
+      score.className = score.className.replace(/sep-\S+/g, "").trim();
+      if (o.sep !== "dot") score.classList.add("sep-" + o.sep);
+    }
+  }
+  look({ alpha: q.get("alpha"), scale: q.get("scale"), top: q.get("top"), brandpos: q.get("brandpos") || "strip",
+         meter: q.get("meter") || "off", sep: q.get("sep") || "pill" });
+  window.addEventListener("message", e => { if (e.data && typeof e.data === "object") look(e.data); });
+  const $ = id => document.getElementById(id);
+  let last = {};
+
+  function fmtClock(s, ot) {
+    s = Math.max(0, Math.ceil(s));
+    return (ot ? "+" : "") + Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+  }
+
+  function playerCard(p) {
+    const el = document.createElement("div");
+    el.className = "pl" + (p.pov ? " pov" : "");
+    el.innerHTML = `<div class="row"><span class="nm"></span><span class="bn num"></span></div><div class="track"><div class="fill"></div></div>`;
+    el.querySelector(".nm").textContent = p.name;
+    return el;
+  }
+
+  // state: {score:{blue,orange}, clock (seconds), overtime, players:[{name,team:0|1,boost,pov}],
+  //         stats:{name,score,goals,assists,saves,shots}}
+  function render(state) {
+    for (const side of ["blue", "orange"]) {
+      const v = state.score[side];
+      if (last.score && last.score[side] !== v) { const el = $("s" + side); el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash"); }
+      $("s" + side).textContent = v;
+    }
+    $("clock").textContent = fmtClock(state.clock, state.overtime);
+    $("clock").classList.toggle("ot", !!state.overtime);
+    const key = state.players.map(p => p.name + p.team + p.pov).join("|");
+    if (key !== last.key) {  // (re)build the cards when the players change
+      for (const [side, t] of [["blue", 0], ["orange", 1]]) {
+        const box = $("p" + side); box.innerHTML = "";
+        for (const p of state.players.filter(p => p.team === t)) box.appendChild(playerCard(p));
+      }
+    }
+    for (const [side, t] of [["blue", 0], ["orange", 1]]) {
+      const cards = $("p" + side).children, ps = state.players.filter(p => p.team === t);
+      ps.forEach((p, i) => { if (p.boost < 0) return;  // car demolished: keep the last value
+                             cards[i].querySelector(".fill").style.width = p.boost + "%";
+                             cards[i].querySelector(".bn").textContent = Math.round(p.boost); });
+    }
+    const s = state.stats;
+    if (s) $("stats").innerHTML = `<div class="who"></div>` + ["score", "goals", "assists", "saves", "shots"]
+      .map(k => `<div class="st"><b class="num">${s[k]}</b><i>${k}</i></div>`).join("");
+    if (s) $("stats").querySelector(".who").textContent = s.name;
+    const pov = state.players.find(p => p.pov);
+    if (pov) meterValue(pov.boost, pov.team);
+    if (state.label != null) { $("label").textContent = state.label; $("label").style.display = state.label ? "" : "none"; }
+    last = { score: { ...state.score }, key };
+  }
+
+  // Intro: names glitch in, hold, glitch out and collapse.
+  function intro({ match, pov, blue, orange }) {
+    const box = $("intro");
+    box.querySelector(".head").innerHTML = `MATCH ${match} <span>·</span> ${pov} POV`;
+    for (const [side, names, tag] of [["blue", blue, "BLUE"], ["orange", orange, "ORANGE"]]) {
+      const el = box.querySelector(".side." + side);
+      el.innerHTML = `<div class="tag">${tag}</div>`;
+      for (const n of names) {
+        const d = document.createElement("div"); d.className = "g"; d.textContent = n; d.dataset.text = n;
+        let size = 78; d.style.fontSize = size + "px"; el.appendChild(d);
+        while (d.scrollWidth > 820 && size > 30) d.style.fontSize = --size + "px";
+      }
+    }
+    box.classList.remove("collapse"); box.classList.add("on", "glitching");
+    const t = [];
+    t.push(setTimeout(() => box.classList.remove("glitching"), 450));                 // snap in
+    for (let k = 1; k * 1.3 < HOLD - .4; k++)                                          // small aftershocks
+      t.push(setTimeout(() => { box.classList.add("glitching"); setTimeout(() => box.classList.remove("glitching"), 90); }, k * 1300));
+    t.push(setTimeout(() => box.classList.add("glitching"), HOLD * 1000));             // snap out
+    t.push(setTimeout(() => box.classList.add("collapse"), HOLD * 1000 + 300));
+    t.push(setTimeout(() => box.classList.remove("on", "glitching", "collapse"), HOLD * 1000 + 560));
+    return t;
+  }
+  window.render = render; window.intro = intro;
+
+  // ---------- Live data ----------
+  if (q.get("demo") !== "1") {
+    let introId = null, busy = false, offSince = null;
+    document.body.classList.add("off");
+    setInterval(async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const st = await (await fetch("/state", { cache: "no-store" })).json();
+        // Hide only after "not in a replay" has lasted 0.5 s (a loading screen),
+        // never for a single odd reading: that would flicker.
+        const live = st.in_replay && st.players;
+        if (live) { offSince = null; document.body.classList.remove("off"); render(st); }
+        else if (offSince === null) offSince = Date.now();
+        else if (Date.now() - offSince > 500) document.body.classList.add("off");
+        if (st.intro && st.intro.id !== introId) {
+          if (introId !== null || st.intro.fresh) intro(st.intro);  // not on a page reload mid-game
+          introId = st.intro.id;
+        }
+      } catch (e) { /* server not up yet */ }
+      busy = false;
+    }, 33);  // ~30 times a second, matching the plugin
+  }
+
+  // ---------- Demo data ----------
+  if (q.get("demo") === "1") {
+    const DEMO = {
+      score: { blue: 1, orange: 1 }, clock: 251, overtime: false,
+      players: [{ name: "TempoH", team: 0, boost: 40 }, { name: "Joyo", team: 0, boost: 75 },
+                { name: "Atow", team: 1, boost: 33, pov: true }, { name: "Arsenal✟", team: 1, boost: 90 }],
+      stats: { name: "Atow", score: 245, goals: 1, assists: 1, saves: 2, shots: 3 },
+    };
+    const targets = DEMO.players.map(p => p.boost);
+    render(DEMO);
+    intro({ match: 1, pov: "ATOW", blue: ["TempoH", "Joyo"], orange: ["Atow", "Arsenal✟"] });
+    setInterval(() => {  // boost drifts toward random targets, like real play
+      DEMO.players.forEach((p, i) => {
+        if (Math.random() < .04) targets[i] = Math.random() < .3 ? 100 : Math.random() * 100;
+        p.boost += Math.sign(targets[i] - p.boost) * Math.min(Math.abs(targets[i] - p.boost), 3);
+      });
+      render(DEMO);
+    }, 100);
+    setInterval(() => { DEMO.clock = DEMO.clock > 0 ? DEMO.clock - 1 : 0; }, 1000);
+    setInterval(() => { const s = Math.random() < .5 ? "blue" : "orange"; DEMO.score[s]++;
+                        if (s === "orange") { DEMO.stats.goals++; DEMO.stats.score += 100; DEMO.stats.shots++; } }, 9000);
+    window.replayIntro = () => intro({ match: 1, pov: "ATOW", blue: ["TempoH", "Joyo"], orange: ["Atow", "Arsenal✟"] });
+  }
+</script>
+</body>
+</html>
