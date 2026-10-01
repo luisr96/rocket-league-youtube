@@ -36,10 +36,16 @@ def thumbnail_for(video: Path, choice: str) -> Path | None:
     return others[0] if others else None
 
 
-def upload_one(yt, video: Path, settings: dict, history, index: int) -> str:
+RECENT_TITLES = 5  # a title used in this many latest uploads is not picked again (if others are left)
+
+
+def upload_one(yt, video: Path, settings: dict, history) -> str:
     data = json.loads(video.with_suffix(".json").read_text(encoding="utf-8"))
     titles = describe.load_titles(Path(settings.get("titles_file", "titles.txt")))
-    title, desc, tags = describe.title(data, index, titles), describe.description(data), describe.tags(data)
+    used = [e["youtube_title"] for e in history.entries if e.get("youtube_title")]
+    recent = list(dict.fromkeys(reversed(used)))[:RECENT_TITLES]  # newest first, one per video
+    title = describe.title(data, titles, recent, special_weight=float(settings.get("special_title_weight", 3)))
+    desc, tags = describe.description(data), describe.tags(data)
     print(f"Uploading {video.name}\n  title: {title}")
     log.info("uploading %s as %r", video, title)
     vid = youtube.upload(yt, video, title, desc, tags, settings.get("privacy", "private"),
@@ -79,11 +85,10 @@ def cmd_upload(cfg, api, history) -> int:
         return 0
     yt = youtube.connect(Path(s.get("client_secrets", "youtube_client_secret.json")),
                          Path(s.get("token_file", "youtube_token.json")))
-    uploaded_before = sum(1 for e in history.entries if e.get("youtube_id")) // 2  # 2 entries per video
     failed = 0
-    for i, v in enumerate(videos):
+    for v in videos:
         try:
-            upload_one(yt, v, s, history, uploaded_before + i)
+            upload_one(yt, v, s, history)
         except youtube.QuotaError as e:
             log.warning("%s", e)
             print(f"Stopping: {e}")

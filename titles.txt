@@ -1,14 +1,126 @@
-# YouTube title patterns. Each upload uses the next line, going round in a loop.
+# YouTube title patterns. For each video, the lines whose conditions fit are
+# collected and one is picked at random (not one used in the last 5 uploads).
 # Add, remove or change lines freely. Lines starting with # are ignored.
 #
 # Placeholders (written exactly like this, in curly brackets):
 #   {PLAYER}  the player's name in capitals, e.g. ATOW
 #   {RANK}    the rank, e.g. SSL (left out when unknown)
 #   {MODE}    the mode, e.g. 2v2
+#   {GOALS} {ASSISTS} {SAVES} {SHOTS} {POINTS}   the player's totals over both games
+#   {WINS}    games won (0-2)
+#   {FASTEST} the player's fastest goal, in kph
+#
+# Conditions (optional), in square brackets at the start of a line; with several,
+# separated by commas, all must be true. Totals are over both games:
+#   wins, losses (0-2), goals, assists, saves, shots, points,
+#   overtime (games that went to overtime, 0-2), fastest (fastest goal, kph),
+#   comebacks (games won after being behind, 0-2)
+#   Operators: =  !=  >  >=  <  <=
+#   e.g.  [wins=2, goals>=4] {PLAYER} Drops {GOALS} Goals in {RANK} {MODE}!
+# A line without conditions can be picked for any video. A line whose conditions
+# fit counts 3 times in the draw (special_title_weight in config.toml).
 # YouTube allows titles up to 100 characters.
+#
+# Style (from the channel this is modelled on): the name in capitals, one strong
+# word, "in Ranked..." or "in Rocket League", the rank and mode in brackets at the end.
 
-{PLAYER} is OVERPOWERED in Rocket League! ({RANK} {MODE})
-{PLAYER} Makes {RANK} Look EASY! (Rocket League {MODE})
-This is Why {PLAYER} is One of the BEST in Rocket League ({RANK} {MODE})
-{PLAYER} Puts On a SHOW in {RANK} {MODE}! | Rocket League
-INSANE {RANK} {MODE} Gameplay from {PLAYER} | Rocket League
+# ---------- Any result: about skill, not the score ----------
+{PLAYER} has UNREAL Mechanics in Ranked... ({RANK} {MODE})
+{PLAYER} has UNFAIR Mechanics in Rocket League! ({RANK} {MODE})
+{PLAYER} has INSANE MECHANICS in Ranked {RANK} {MODE}!
+{PLAYER} has BEAUTIFUL Mechanics in Rocket League! ({RANK} {MODE})
+{PLAYER} has GENIUS Mechanics in Rocket League... ({RANK} {MODE})
+{PLAYER}'s Mechanics are UNREAL in Ranked {RANK} {MODE}!
+{PLAYER} has UNREAL CONTROL in Rocket League! ({RANK} {MODE})
+{PLAYER} has RIDICULOUS Control in Ranked... ({RANK} {MODE})
+{PLAYER} has INSANE CONTROL in Rocket League! ({RANK} {MODE})
+{PLAYER} has UNREAL BALL CONTROL in Rocket League!
+{PLAYER} has UNREAL SPEED in Ranked! ({RANK} {MODE})
+{PLAYER} is just TOO FAST in Rocket League ({RANK} {MODE})
+{PLAYER} is so FAST in Ranked... ({RANK} {MODE})
+{PLAYER} is a Mechanical MASTER! ({RANK} {MODE})
+{PLAYER} is a Mechanical GENIUS in Ranked... ({RANK} {MODE})
+{PLAYER} is a Mechanical EXPERT! ({RANK} {MODE})
+{PLAYER} is a Mechanical LEGEND! ({RANK} {MODE})
+{PLAYER} is a Movement MASTER! ({RANK} {MODE})
+{PLAYER} is the KING of Mechanics! ({RANK} {MODE})
+{PLAYER} is the KING of Control! ({RANK} {MODE})
+{PLAYER} is a 200IQ Player... ({RANK} {MODE})
+{PLAYER} is FREESTYLING in Ranked... ({RANK} {MODE})
+{PLAYER} is FREESTYLING in Rocket League! ({RANK} {MODE})
+{PLAYER} AMAZING Rocket League Gameplay ({RANK} {MODE})
+{PLAYER} ASTOUNDING Rocket League Gameplay ({RANK} {MODE})
+{PLAYER} INCREDIBLE Rocket League Gameplay ({RANK} {MODE})
+{PLAYER} OUTSTANDING Rocket League Gameplay ({RANK} {MODE})
+{PLAYER} SENSATIONAL Rocket League Gameplay ({RANK} {MODE})
+{PLAYER} UNREAL Rocket League Gameplay ({RANK} {MODE})
+{PLAYER} Rocket League Gameplay ({RANK} {MODE})
+
+# ---------- Won at least one game ----------
+[wins>=1] {PLAYER} is OVERPOWERED in Ranked... ({RANK} {MODE})
+[wins>=1] {PLAYER} is OVERPOWERED in Rocket League! ({RANK} {MODE})
+[wins>=1] {PLAYER} is FANTASTIC in Rocket League... ({RANK} {MODE})
+[wins>=1] {PLAYER} is INCREDIBLE in Rocket League... ({RANK} {MODE})
+[wins>=1] {PLAYER} is EXTRAORDINARY in Rocket League... ({RANK} {MODE})
+[wins>=1] {PLAYER} is PHENOMENAL in Rocket League... ({RANK} {MODE})
+[wins>=1] {PLAYER} is UNBELIEVABLE in Rocket League! ({RANK} {MODE})
+[wins>=1] {PLAYER} is RIDICULOUS in Ranked... ({RANK} {MODE})
+[wins>=1] {PLAYER} is PEAKING in Rocket League! ({RANK} {MODE})
+[wins>=1] {PLAYER} is SMURFING in Ranked... ({RANK} {MODE})
+
+# ---------- Won both games ----------
+[wins=2] {PLAYER} is UNSTOPPABLE in Rocket League! ({RANK} {MODE})
+[wins=2] {PLAYER} is UNSTOPPABLE in Ranked... ({RANK} {MODE})
+[wins=2] {PLAYER} is UNSTOPPABLE in Ranked {RANK} {MODE}!
+[wins=2] {PLAYER} is DOMINATING in Rocket League! ({RANK} {MODE})
+[wins=2] {PLAYER} is DESTROYING in Ranked... ({RANK} {MODE})
+[wins=2] {PLAYER} is DESTROYING Opponents in Ranked... ({RANK} {MODE})
+[wins=2] {PLAYER} is MECHANICALLY UNSTOPPABLE in Ranked! ({RANK} {MODE})
+[wins=2] {PLAYER} is dominating in {RANK}...
+[wins=2] {PLAYER} is TOO GOOD for {RANK} {MODE}...
+
+# ---------- Comebacks ----------
+[comebacks>=1] {PLAYER} INSANE COMEBACK in Ranked! ({RANK} {MODE})
+[comebacks>=1] {PLAYER} UNREAL Comeback in Rocket League... ({RANK} {MODE})
+[comebacks=2] {PLAYER} UNREAL COMEBACKS in Ranked! ({RANK} {MODE})
+
+# ---------- Won one, lost one ----------
+[wins=1] {PLAYER} Battles in Ranked... ({RANK} {MODE})
+[wins=1] {PLAYER} is GRINDING Ranked {RANK} {MODE}...
+
+# ---------- Lost both games ----------
+[wins=0] {PLAYER} vs the TOUGHEST Lobbies in Ranked... ({RANK} {MODE})
+[wins=0] {PLAYER} Gets TESTED in Ranked... ({RANK} {MODE})
+[wins=0] {RANK} {MODE} is BRUTAL... ({PLAYER} POV)
+
+# ---------- Goals ----------
+[goals>=3] {PLAYER} is DESTROYING Defenders in Ranked... ({RANK} {MODE})
+[goals>=3] {PLAYER} is HUMILIATING Defenders in Ranked... ({RANK} {MODE})
+[goals>=3] {PLAYER} is DEMOLISHING Defenders in Ranked... ({RANK} {MODE})
+[goals>=3] {PLAYER} is a CLIPPING MACHINE in Ranked {RANK} {MODE}!
+[goals>=4] {PLAYER} Scores {GOALS} GOALS in Ranked! ({RANK} {MODE})
+[goals>=5] {GOALS} GOALS?! {PLAYER} CAN'T STOP SCORING in Ranked... ({RANK} {MODE})
+
+# ---------- Fast goals ----------
+[fastest>=110] {PLAYER} has a {FASTEST} KPH SHOT in Ranked! ({RANK} {MODE})
+[fastest>=110] {PLAYER} is SHOOTING LASERS in Ranked... ({RANK} {MODE})
+[fastest>=125] {FASTEST} KPH BULLET?! {PLAYER} is TOO STRONG in Ranked ({RANK} {MODE})
+
+# ---------- Saves ----------
+[saves>=10] {PLAYER} is a BRICK WALL in Ranked... ({RANK} {MODE})
+[saves>=10] {PLAYER} Saves EVERYTHING in Rocket League! ({RANK} {MODE})
+[saves>=12] {SAVES} SAVES?! {PLAYER} is A MONSTER in Ranked ({RANK} {MODE})
+
+# ---------- Assists / playmaking ----------
+[assists>=6] {PLAYER} has 200IQ PASSES in Ranked... ({RANK} {MODE})
+[assists>=7] {PLAYER} is the ULTIMATE Teammate in Ranked! ({RANK} {MODE})
+
+# ---------- Overtime ----------
+[overtime>=1] {PLAYER} INSANE OVERTIME in Ranked! ({RANK} {MODE})
+[overtime>=1, wins>=1] {PLAYER} CLUTCHES Overtime in Ranked! ({RANK} {MODE})
+[overtime=2] {PLAYER} IS THE KING OF CLUTCH OVERTIMES in Ranked... ({RANK} {MODE})
+
+# ---------- Combinations ----------
+[wins=2, goals>=4] {PLAYER} is BULLDOZING THROUGH RANKED! ({RANK} {MODE})
+[wins=2, goals>=4] {PLAYER} CARRIES in Ranked... ({RANK} {MODE})
+[wins=0, goals>=3] {PLAYER} Tries to CARRY in Ranked... ({RANK} {MODE})

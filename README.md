@@ -96,7 +96,7 @@ python thumbnails.py "<video>.mp4"   # remake a video's thumbnail candidates
 ```
 
 - **Each video** is saved in `output_dir` with a `.json` data file (names, scores, goal times) and 5 thumbnail candidates (`_thumb_1s-before.jpg`, …).
-- **Uploading** (`[youtube]` in `config.toml`): the title, description and tags are generated from the data file. Titles come from `titles.txt` (one pattern per line, used in turn; edit or add lines freely); the thumbnail is `1s-before` unless set otherwise. After a successful upload the YouTube link is saved in `history.json` and the video and data file are deleted; the thumbnails are kept, so you can pick another one in YouTube Studio. A failed upload is retried on the next run. When YouTube's daily limit is reached (about 6 uploads a day), uploading stops until the next run.
+- **Uploading** (`[youtube]` in `config.toml`): the title, description and tags are generated from the data file. Titles come from `titles.txt` (one pattern per line, picked at random; edit or add lines freely); the thumbnail is `1s-before` unless set otherwise. After a successful upload the YouTube link is saved in `history.json` and the video and data file are deleted; the thumbnails are kept, so you can pick another one in YouTube Studio. A failed upload is retried on the next run. When YouTube's daily limit is reached (about 6 uploads a day), uploading stops until the next run.
 
 - **Logs:** each run writes a log file to `logs/`.
 - **Failures:** a failed run (API, game, OBS) is logged and nothing is marked as done. A partial recording is left in the OBS recording folder.

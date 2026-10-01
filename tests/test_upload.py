@@ -1,6 +1,7 @@
 """Titles, descriptions, tags and the upload flow (YouTube replaced by a fake). Run: python -m unittest"""
 import json
 import os
+import random
 import tempfile
 import time
 import unittest
@@ -30,28 +31,99 @@ class DescribeTest(unittest.TestCase):
 
     TITLES = describe.load_titles(Path(__file__).resolve().parent.parent / "titles.txt")
 
-    def test_title_uses_in_game_name_in_capitals_and_rotates(self):
-        self.assertEqual(describe.title(data(), 0, self.TITLES), "ATOW is OVERPOWERED in Rocket League! (SSL 2v2)")
-        titles = {describe.title(data(), i, self.TITLES) for i in range(len(self.TITLES))}
-        self.assertEqual(len(titles), len(self.TITLES))
-        self.assertEqual(describe.title(data(), len(self.TITLES), self.TITLES), describe.title(data(), 0, self.TITLES))
+    def test_fill_uses_in_game_name_in_capitals(self):
+        self.assertEqual(describe.fill("{PLAYER} is OVERPOWERED in Rocket League! ({RANK} {MODE})", data()),
+                         "ATOW is OVERPOWERED in Rocket League! (SSL 2v2)")
+
+    def eligible_titles(self, d):
+        f = describe.facts(d)
+        return [describe.fill(p, d) for p in self.TITLES if describe.eligible(p, f)]
+
+    def test_title_is_random_and_covers_all_eligible_patterns(self):
+        rng = random.Random(1)
+        seen = {describe.title(data(), self.TITLES, rng=rng) for _ in range(500)}
+        self.assertEqual(seen, set(self.eligible_titles(data())))
+
+    def test_title_avoids_recent_titles(self):
+        all_titles = self.eligible_titles(data())
+        rng = random.Random(2)
+        for _ in range(50):
+            self.assertEqual(describe.title(data(), self.TITLES, all_titles[1:], rng), all_titles[0])
+        # every title used recently: any is allowed again
+        self.assertIn(describe.title(data(), self.TITLES, all_titles, rng), all_titles)
 
     def test_title_without_rank(self):
-        self.assertEqual(describe.title(data(rank=""), 0, self.TITLES), "ATOW is OVERPOWERED in Rocket League! (2v2)")
-        for i in range(len(self.TITLES)):
-            t = describe.title(data(rank=""), i, self.TITLES)
+        self.assertEqual(describe.fill("[wins>=1] {PLAYER} is OVERPOWERED in Rocket League! ({RANK} {MODE})", data(rank="")),
+                         "ATOW is OVERPOWERED in Rocket League! (2v2)")
+        for p in self.TITLES:
+            t = describe.fill(p, data(rank=""))
             self.assertNotIn("  ", t)
             self.assertNotIn("( ", t)
+
+    def test_special_titles_are_weighted(self):
+        titles = ["general one", "general two", "[wins=2] special"]
+        rng = random.Random(3)
+        picks = [describe.title(data(), titles, rng=rng) for _ in range(5000)]  # data(): won both
+        share = picks.count("special") / len(picks)
+        self.assertAlmostEqual(share, 3 / 5, delta=0.03)  # weights 1, 1, 3
+        picks = [describe.title(data(), titles, rng=rng, special_weight=1) for _ in range(5000)]
+        self.assertAlmostEqual(picks.count("special") / len(picks), 1 / 3, delta=0.03)
+
+    def test_conditions(self):
+        f = {"wins": 2, "losses": 0, "goals": 4, "assists": 1, "saves": None, "shots": 6, "points": 900,
+             "overtime": 0, "fastest": 112}
+        self.assertTrue(describe.eligible("{PLAYER} any", f))
+        self.assertTrue(describe.eligible("[wins=2] x", f))
+        self.assertFalse(describe.eligible("[wins=0] x", f))
+        self.assertTrue(describe.eligible("[wins=2, goals>=4, fastest>110] x", f))
+        self.assertFalse(describe.eligible("[wins=2, goals>4] x", f))
+        self.assertTrue(describe.eligible("[overtime!=1, assists<2, points<=900] x", f))
+        self.assertFalse(describe.eligible("[saves>=0] x", f))       # unknown: never true
+        self.assertFalse(describe.eligible("{PLAYER} {SAVES} saves", f))  # shows an unknown number
+        self.assertTrue(describe.eligible("{PLAYER} {GOALS} goals", f))
+        with self.assertRaises(ValueError):
+            describe.parse_title("[wnis=2] x")
+        with self.assertRaises(ValueError):
+            describe.parse_title("[wins=2] {GOLAS} x")
+
+    def test_facts_and_number_placeholders(self):
+        d = data()
+        for g, (goals, saves, ot) in zip(d["games"], ((1, 3, False), (2, 4, True))):
+            g["stats"] = {"points": 300, "goals": goals, "assists": 0, "saves": saves, "shots": 3}
+            g["overtime"] = ot
+        d["games"][1]["goals"] = [{"by": "target", "team": "blue", "speed": 101.6},
+                                  {"by": "teammate", "team": "blue", "speed": 140}]
+        self.assertEqual(describe.facts(d), {"wins": 2, "losses": 0, "goals": 3, "assists": 0, "saves": 7, "shots": 6,
+                                             "points": 600, "overtime": 1, "fastest": 102, "comebacks": 0})
+        self.assertEqual(describe.fill("[saves>=5] {PLAYER}: {SAVES} saves, {GOALS} goals, {FASTEST} kph", d),
+                         "ATOW: 7 saves, 3 goals, 102 kph")
+
+    def test_comebacks(self):
+        d = data()  # Atow is orange in game 1 (won 4-2), blue in game 2 (won 6-3)
+        g1 = [{"team": "blue"}, {"team": "blue"}, {"team": "orange"}, {"team": "orange"}, {"team": "orange"}, {"team": "orange"}]
+        g2 = [{"team": "blue"}, {"team": "orange"}, {"team": "blue"}]  # level at most, never behind
+        d["games"][0]["goals"], d["games"][1]["goals"] = g1, g2
+        self.assertEqual(describe.facts(d)["comebacks"], 1)
+
+    def test_lost_both_never_gets_a_win_title(self):
+        d = data()
+        for g in d["games"]:  # Atow's team loses both
+            team = g["target"]["team"]
+            g["score"] = {team: 0, ("orange" if team == "blue" else "blue"): 3}
+        for t in self.eligible_titles(d):
+            for word in ("UNSTOPPABLE", "UNDEFEATED", "OVERPOWERED", "Sweeps", "2 WINS", "Bounces Back"):
+                self.assertNotIn(word, t)
 
     def test_titles_file(self):
         with tempfile.TemporaryDirectory() as d:
             f = Path(d) / "titles.txt"
-            f.write_text("# comment\n\n{PLAYER} wins in {MODE}\n{PLAYR} typo line\n", encoding="utf-8")
-            self.assertEqual(describe.load_titles(f), ["{PLAYER} wins in {MODE}"])
+            f.write_text("# comment\n\n{PLAYER} wins in {MODE}\n{PLAYR} typo line\n[wnis=2] typo\n[wins=2] ok\n",
+                         encoding="utf-8")
+            self.assertEqual(describe.load_titles(f), ["{PLAYER} wins in {MODE}", "[wins=2] ok"])
             f.write_text("# only comments\n", encoding="utf-8")
             self.assertEqual(describe.load_titles(f), describe.DEFAULT_TITLES)
         self.assertEqual(describe.load_titles(Path("missing.txt")), describe.DEFAULT_TITLES)
-        self.assertEqual(len(self.TITLES), 5)
+        self.assertGreater(len(self.TITLES), 50)
 
     def test_description(self):
         d = describe.description(data())
@@ -72,6 +144,8 @@ class DescribeTest(unittest.TestCase):
 
 
 class UploadFlowTest(unittest.TestCase):
+    TITLES = describe.load_titles(Path(__file__).resolve().parent.parent / "titles.txt")
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.dir = Path(self.tmp.name)
@@ -110,9 +184,10 @@ class UploadFlowTest(unittest.TestCase):
         self.history.add({"id": "g2", "video": str(v)})
         with mock.patch.object(youtube, "upload", return_value="VID123") as up, \
                 mock.patch.object(youtube, "set_thumbnail") as thumb:
-            uploader.upload_one(object(), v, {}, self.history, 0)
+            uploader.upload_one(object(), v, {}, self.history)
         title = up.call_args.args[2]
-        self.assertEqual(title, "ATOW is OVERPOWERED in Rocket League! (SSL 2v2)")
+        self.assertEqual(self.history.entries[0]["youtube_title"], title)
+        self.assertIn(title, [describe.fill(p, data()) for p in UploadFlowTest.TITLES])
         self.assertEqual(up.call_args.args[5], "private")
         self.assertEqual(thumb.call_args.args[2].name, "a_thumb_1s-before.jpg")
         self.assertEqual([e["youtube_id"] for e in self.history.entries], ["VID123", "VID123"])
@@ -124,14 +199,14 @@ class UploadFlowTest(unittest.TestCase):
         v = self.video("a")
         with mock.patch.object(youtube, "upload", return_value="VID"), \
                 mock.patch.object(youtube, "set_thumbnail", side_effect=youtube.YouTubeError("not verified")):
-            self.assertEqual(uploader.upload_one(object(), v, {}, self.history, 0), "VID")
+            self.assertEqual(uploader.upload_one(object(), v, {}, self.history), "VID")
         self.assertFalse(v.exists())
 
     def test_failed_upload_keeps_files(self):
         v = self.video("a")
         with mock.patch.object(youtube, "upload", side_effect=youtube.YouTubeError("boom")):
             with self.assertRaises(youtube.YouTubeError):
-                uploader.upload_one(object(), v, {}, self.history, 0)
+                uploader.upload_one(object(), v, {}, self.history)
         self.assertTrue(v.exists())
         self.assertTrue(v.with_suffix(".json").exists())
 

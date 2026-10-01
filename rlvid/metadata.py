@@ -49,8 +49,24 @@ def goals(m: Match, plugin_goals: list[dict], video_start: float, release_wall: 
     return out
 
 
+STAT_KEYS = ("score", "goals", "assists", "saves", "shots")
+
+
+def end_stats(m: Match, hud: dict | None) -> tuple[dict | None, bool | None]:
+    """The target's end-of-game stats and whether the game went to overtime, from the
+    plugin's live HUD data read as the game ended. (None, None) if not available.
+
+    Stats: points (the in-game score), goals, assists, saves, shots.
+    """
+    if not hud or not hud.get("in_replay") or not hud.get("players"):
+        return None, None
+    me = next((p for p in hud["players"] if m.camera_focus_id and p.get("id") == m.camera_focus_id), None) or         next((p for p in hud["players"] if p.get("name", "").lower() == m.camera_player.lower()), None)
+    stats = {("points" if k == "score" else k): int(me.get(k, 0)) for k in STAT_KEYS} if me else None
+    return stats, bool(hud.get("overtime"))
+
+
 def game(i: int, m: Match, overlay_sides: tuple[list[str], list[str]], game_goals: list[dict],
-         video_start: float = 0) -> dict:
+         video_start: float = 0, stats: dict | None = None, overtime: bool | None = None) -> dict:
     return {
         "game": i,
         "video_start": round(video_start, 3),  # where the game starts in the video (seconds)
@@ -65,6 +81,8 @@ def game(i: int, m: Match, overlay_sides: tuple[list[str], list[str]], game_goal
         "overlay": {"blue": overlay_sides[0], "orange": overlay_sides[1]},
         "ballchasing": {"blue": m.blue_players, "orange": m.orange_players},
         "goals": game_goals,
+        "stats": stats,          # target's points/goals/assists/saves/shots at the end (None if unknown)
+        "overtime": overtime,    # None if unknown
     }
 
 

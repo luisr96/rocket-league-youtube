@@ -1,4 +1,5 @@
 """Shared run logic for pick.py and auto.py."""
+import json
 import logging
 import re
 import sys
@@ -156,7 +157,10 @@ def process(pair: Pair, cfg, api, history) -> bool:
                 log.warning("game %d did not report its end; stopped after duration + %ds buffer", i, buffer)
             game_goals = metadata.goals(m, (read_status() or {}).get("goals", []), video_start, release_wall)
             log.info("game %d goals: %s", i, game_goals)
-            games.append(metadata.game(i, m, overlay.sides(m, players), game_goals, video_start))
+            # The replay is still on its last frames here, so the HUD data has the final stats.
+            stats, overtime = metadata.end_stats(m, read_hud())
+            log.info("game %d stats: %s overtime: %s", i, stats, overtime)
+            games.append(metadata.game(i, m, overlay.sides(m, players), game_goals, video_start, stats, overtime))
             if fade_ms:  # to black after each game, including the end of the video
                 recorder.fade_out(o.get("transition_scene", "RLVid Black"), fade_ms)
             if i == 1:
@@ -200,6 +204,18 @@ def process(pair: Pair, cfg, api, history) -> bool:
     log.info("done: %s", final)
     game.close_game()
     return True
+
+
+def read_hud() -> dict | None:
+    """The plugin's live HUD data (rlvid_hud.json), or None. Retried: the plugin
+    replaces the file ~30 times a second, so a read can land mid-replace."""
+    from .hudserver import HUD_DATA
+    for _ in range(5):
+        try:
+            return json.loads(HUD_DATA.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            time.sleep(0.02)
+    return None
 
 
 def hud_url(hud: HudServer, h: dict) -> str:

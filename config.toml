@@ -115,7 +115,8 @@ client_secrets = "youtube_client_secret.json"   # OAuth client file from Google 
 token_file = "youtube_token.json"               # saved sign-in (created by --login)
 privacy = "private"           # private until the API project passes Google's audit; publish in YouTube Studio
 category_id = "20"            # Gaming
-titles_file = "titles.txt"    # title patterns, one per line, used in turn
+titles_file = "titles.txt"    # title patterns, one per line; one is picked at random per video
+special_title_weight = 3      # a fitting title with [conditions] is this many times as likely as a general one
 thumbnail = "1s-before"       # 1s-before, 0.5s-before, 0.1s-before, 0.4s-after or 5s-after
 delete_after_upload = true    # delete the video and its data file after upload (thumbnails are kept)
 
