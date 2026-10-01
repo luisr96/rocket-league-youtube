@@ -4,3 +4,4 @@ websocket-client>=1.7
 obsws-python>=1.7
 google-api-python-client>=2.100
 google-auth-oauthlib>=1.2
+beautifulsoup4>=4.12

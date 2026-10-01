@@ -1,3 +1,22 @@
+[leaderboard]
+# Besides players.txt, look for the top players of the rlstats.net skill
+# leaderboard (Steam), searched by Steam ID. The page is downloaded at most once
+# per refresh_hours; if that fails, the last saved list is used, and with none,
+# players.txt only. Hand-picked players come first.
+enabled = true
+url = "https://rlstats.net/leaderboards/skills"
+playlist = "doubles"          # doubles, duel or standard (ranked)
+top = 100                     # how many of the leaderboard's players (the page has 100)
+refresh_hours = 24
+
+[schedule]
+# Which player gets the next video (auto.py / daily.py; pick.py lists players this way).
+# Priority = weight (players.txt) x days since the player's last video; the pick is
+# random, weighted by priority, so over time players get videos in proportion to
+# their weights.
+never_days = 14               # a player who never had a video counts as this many days overdue
+cooldown_days = 1             # skip a player whose last video was this many days ago or less (1 = not two days in a row)
+
 [search]
 pro = true
 playlists = ["ranked-duels", "ranked-doubles", "ranked-standard"]
@@ -15,6 +34,7 @@ max_retries = 3
 [paths]
 history_file = "history.json"
 players_file = "players.txt"
+leaderboard_file = "leaderboard.json"   # saved copy of the leaderboard (see [leaderboard])
 log_dir = "logs"
 # "auto" = <Windows Documents folder>\My Games\Rocket League\TAGame\Demos,
 # which follows OneDrive redirection. Or put a full path in single quotes.

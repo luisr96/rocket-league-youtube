@@ -1,5 +1,32 @@
-# One ballchasing player name per line. Order = camera priority.
-atow
-yANXNZ^^
-Nush
-nass
+# Players to make videos of: one per line, "name weight". Only these are considered.
+#
+# weight = how often you want to see them, relative to each other (no number = 1).
+#   Each video goes to a player picked at random with priority = weight x days since
+#   their last video (see [schedule] in config.toml), so a weight-5 player gets
+#   videos about 5x as often as a weight-1 player.
+# name = their ballchasing / in-game name (not case-sensitive). Players on the
+#   leaderboard (see [leaderboard]) are searched by their Steam ID automatically,
+#   so renames don't matter; for others you can add it: "atow 3 steam:7656119..."
+#   A name that ends in a separate number ("Player 2") needs a weight after it.
+# Order = who the camera follows when two listed players are in the same game.
+
+zen         5   steam:76561198144145654
+Nwpo        5   steam:76561199019981824
+nass        3   steam:76561198838703744
+vatira      3   steam:76561198960239428
+atow        3   steam:76561198289610054
+yANXNZ^^    2   steam:76561198856200686
+Nush        2   steam:76561199170815325
+Firstkiller 2   steam:76561198327846028
+diaz        2   steam:76561198880724484
+Warden      2   steam:76561198830690672
+rw9         2   steam:76561199017029799
+dralii      2   steam:76561199031413358
+crr         2   steam:76561198845948731
+trk511      2   steam:76561198994793330
+justin.     2   steam:76561198299709908
+CHEESE.     2   steam:76561199076031564
+Raddah      2   steam:76561199088973155
+juicy       2   steam:76561199013030566
+Forky       2   steam:76561198137271296
+BeastMode   2   steam:76561198284393407

@@ -7,13 +7,13 @@ import time
 from datetime import date, datetime
 from pathlib import Path
 
-from . import describe, game, metadata, obs, overlay, thumbnail, video, youtube
+from . import describe, game, leaderboard, metadata, obs, overlay, schedule, thumbnail, video, youtube
 from .hudserver import HudServer
 from .api import ApiError, Ballchasing
 from .bakkes import BakkesError, read_status
 from .config import ConfigError, load_config
 from .history import History
-from .search import Match, Pair, find_pairs, find_unseen
+from .search import Match, Pair, Player, combine, find_pairs, find_unseen
 
 log = logging.getLogger("rlvid")
 
@@ -247,18 +247,48 @@ def make_thumbnails(cfg, ffmpeg: str, final: Path) -> None:
         print(f"WARNING: thumbnails failed ({e}); the video is saved. Retry with: python thumbnails.py \"{final}\"")
 
 
+def players_for(cfg) -> list[Player]:
+    """The players from players.txt, with Steam IDs from the leaderboard where it has
+    them. Worked out once per run; the leaderboard is downloaded at most once a day."""
+    if getattr(cfg, "_players", None) is None:
+        board = leaderboard.get(cfg.raw.get("leaderboard", {}), cfg.path("leaderboard_file"))
+        cfg._players = combine(cfg.roster or cfg.players, board)
+        log.info("players: %d (%d searched by Steam ID)", len(cfg._players),
+                 sum(1 for p in cfg._players if p.steam_id))
+    return cfg._players
+
+
 def find_pairs_for(cfg, api, history) -> list[Pair]:
-    matches = find_unseen(api, cfg, history.ids())
+    matches = find_unseen(api, cfg, history.ids(), players_for(cfg))
     return find_pairs(matches, cfg.raw["pairs"]["max_gap_days"])
 
 
+def player_candidates(cfg, api, history) -> list[schedule.Candidate]:
+    """One candidate per player with unrecorded games, by priority (see rlvid/schedule.py)."""
+    s = cfg.raw.get("schedule", {})
+    return schedule.candidates(players_for(cfg), find_pairs_for(cfg, api, history), history.entries, date.today(),
+                               float(s.get("never_days", 14)), int(s.get("cooldown_days", 1)))
+
+
+def print_candidates(cands: list[schedule.Candidate]) -> None:
+    print(f"{'':>2}  {'weight':>6}  {'last video':10}  {'priority':>8}")
+    for c in cands:
+        last = f"{c.last_video:%Y-%m-%d}" if c.last_video else "never"
+        note = "  (cooldown)" if c.cooldown else ""
+        print(f"{'':>2}  {c.weight:>6g}  {last:10}  {c.priority:>8.0f}  {c.player}{note}")
+
+
 def cmd_pick(cfg, api, history) -> int:
-    print(f"Searching ballchasing for: {', '.join(cfg.players)} ...")
-    pairs = find_pairs_for(cfg, api, history)[: cfg.search["pick_list_size"]]
+    print(f"Searching ballchasing for {len(players_for(cfg))} players ...")
+    # One row per player (their newest pair), most due first.
+    cands = player_candidates(cfg, api, history)[: cfg.search["pick_list_size"]]
+    pairs = [c.pair for c in cands]
     if not pairs:
         print("No unseen pairs of games found.")
         return 0
     print_pairs(pairs)
+    print("\nMost due first (priority = weight x days since their last video):")
+    print_candidates(cands)
     choice = input("\nNumber to record (empty to quit): ").strip()
     if not choice:
         return 0
@@ -269,13 +299,17 @@ def cmd_pick(cfg, api, history) -> int:
 
 
 def cmd_auto(cfg, api, history) -> int:
-    print(f"Searching ballchasing for: {', '.join(cfg.players)} ...")
-    pairs = find_pairs_for(cfg, api, history)
-    if not pairs:
+    print(f"Searching ballchasing for {len(players_for(cfg))} players ...")
+    cands = player_candidates(cfg, api, history)
+    chosen = schedule.choose(cands)
+    if not chosen:
         log.info("no unseen pairs of games")
         print("No unseen pairs of games found.")
         return 0
-    return 0 if process(pairs[0], cfg, api, history) else 1
+    log.info("chose %s (weight %g, priority %.0f) among %d players", chosen.player, chosen.weight, chosen.priority,
+             len(cands))
+    print(f"Chose {chosen.player} (priority {chosen.priority:.0f}; {len(cands)} players had games).")
+    return 0 if process(chosen.pair, cfg, api, history) else 1
 
 
 def run(command) -> int:

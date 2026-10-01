@@ -87,27 +87,76 @@ def _focus_ids(*teams: dict) -> dict[str, str]:
     return out
 
 
+@dataclass
+class Player:
+    """A player from players.txt to look for: by Steam ID when known (from
+    players.txt or the leaderboard, so renames don't matter), else by name."""
+    name: str
+    steam_id: str | None = None
+    country: str | None = None
+    source: str = "players.txt"   # where the Steam ID came from: players.txt or leaderboard
+    weight: float = 1.0
+
+    @property
+    def query(self) -> dict:
+        """The ballchasing search filter for this player."""
+        return {"player-id": f"steam:{self.steam_id}"} if self.steam_id else {"player-name": self.name}
+
+
+def combine(roster: list, board: list) -> list[Player]:
+    """The players from players.txt (only those: the leaderboard adds nobody), in file
+    order (= camera priority), each with a Steam ID from players.txt or, failing that,
+    from a leaderboard player with the same name."""
+    by_name = {}
+    for e in board:
+        by_name.setdefault(e.name.lower(), e)
+    out = []
+    for r in roster:
+        name, weight, sid = (r, 1.0, None) if isinstance(r, str) else (r.name, r.weight, r.steam_id)
+        if sid:
+            out.append(Player(name, sid, weight=weight))
+        elif name.lower() in by_name:
+            e = by_name[name.lower()]
+            out.append(Player(name, e.steam_id, e.country, "leaderboard", weight))
+        else:
+            out.append(Player(name, weight=weight))
+    return out
+
+
 def _team(t: dict) -> tuple[list[str], int]:
     return [p.get("name", "?") for p in t.get("players", [])], int(t.get("goals") or 0)
 
 
-def _featured(players: list[str], wanted: list[str]) -> list[tuple[str, str]]:
-    """(in-game name, players.txt name) of listed players, ordered by players.txt priority."""
+def _steam_ids(*teams: dict) -> dict[str, str]:
+    """In-game name -> Steam ID for the Steam players in a replay."""
+    return {p.get("name", "?"): str(p["id"]["id"]) for t in teams for p in t.get("players", [])
+            if (p.get("id") or {}).get("platform") == "steam" and p["id"].get("id")}
+
+
+def _featured(players: list[str], wanted: list, steam_ids: dict[str, str] | None = None) -> list[tuple[str, str]]:
+    """(in-game name, listed name) of wanted players in the replay, in wanted (priority) order.
+
+    A wanted player with a Steam ID is matched by ID, others by exact name.
+    """
+    steam_ids = steam_ids or {}
     out: list[tuple[str, str]] = []
     for w in wanted:
-        wl = w.lower()
-        # Exact (case-insensitive) only: ballchasing's name search is a substring
-        # match, which also returns names like "I Destroy ZEN".
-        hit = next((p for p in players if p.lower() == wl), None)
+        w = w if isinstance(w, Player) else Player(w)
+        if w.steam_id:
+            hit = next((p for p in players if steam_ids.get(p) == w.steam_id), None)
+        else:
+            # Exact (case-insensitive) only: ballchasing's name search is a substring
+            # match, which also returns names like "I Destroy ZEN".
+            hit = next((p for p in players if p.lower() == w.name.lower()), None)
         if hit and hit not in (h for h, _ in out):
-            out.append((hit, w))
+            out.append((hit, w.name))
     return out
 
 
-def to_match(r: dict, wanted: list[str]) -> Match | None:
+def to_match(r: dict, wanted: list) -> Match | None:
     blue, bg = _team(r.get("blue", {}))
     orange, og = _team(r.get("orange", {}))
-    featured = _featured(blue + orange, wanted)
+    featured = _featured(blue + orange, wanted, _steam_ids(r.get("blue", {}), r.get("orange", {})))
     if not featured:
         return None
     return Match(
@@ -125,7 +174,8 @@ def to_match(r: dict, wanted: list[str]) -> Match | None:
     )
 
 
-def find_unseen(api: Ballchasing, cfg, seen: set[str]) -> list[Match]:
+def find_unseen(api: Ballchasing, cfg, seen: set[str], players: list[Player] | None = None) -> list[Match]:
+    players = players if players is not None else [Player(n) for n in cfg.players]
     s = cfg.search
     base = {
         "playlist": s["playlists"],
@@ -141,13 +191,13 @@ def find_unseen(api: Ballchasing, cfg, seen: set[str]) -> list[Match]:
     # in the same replay, so query each separately and merge.
     found: dict[str, Match] = {}
     fingerprints: set[tuple] = set()
-    for name in cfg.players:
-        replays = api.list_replays(**base, **{"player-name": name})
-        log.info("player %s: %d replays", name, len(replays))
+    for p in players:
+        replays = api.list_replays(**base, **p.query)
+        log.info("player %s (%s): %d replays", p.name, p.steam_id or "by name", len(replays))
         for r in replays:
             if r["id"] in seen or r["id"] in found:
                 continue
-            m = to_match(r, cfg.players)
+            m = to_match(r, players)
             if m and m.fingerprint not in fingerprints:
                 found[m.id] = m
                 fingerprints.add(m.fingerprint)

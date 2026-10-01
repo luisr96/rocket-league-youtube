@@ -1,6 +1,7 @@
 """Load config.toml, players.txt and the API key from .env."""
 import ctypes
 import os
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,6 +20,7 @@ class Config:
     raw: dict
     api_key: str
     players: list[str] = field(default_factory=list)
+    roster: list = field(default_factory=list)  # RosterEntry per players.txt line
 
     def path(self, key: str) -> Path:
         value = self.raw["paths"][key]
@@ -45,17 +47,52 @@ def documents_dir() -> Path:
     return Path(buf.value)
 
 
-def load_players(path: Path) -> list[str]:
+@dataclass
+class RosterEntry:
+    name: str
+    weight: float = 1.0
+    steam_id: str | None = None
+
+
+def parse_roster_line(line: str) -> RosterEntry | None:
+    """'zen 5', 'atow 3 steam:76561198289610054', 'justin.' -> entry (weight 1 if none given).
+
+    The name is everything before the optional weight and steam:ID, so names with
+    spaces work too.
+    """
+    line = line.split("#", 1)[0].strip()
+    if not line:
+        return None
+    tokens = line.split()
+    steam_id = None
+    weight = 1.0
+    while len(tokens) > 1:
+        t = tokens[-1]
+        if t.lower().startswith("steam:") and t[6:].isdigit():
+            steam_id = t[6:]
+        elif re.fullmatch(r"\d+(\.\d+)?", t) and weight == 1.0:
+            weight = float(t)
+        else:
+            break
+        tokens.pop()
+    return RosterEntry(" ".join(tokens), weight, steam_id)
+
+
+def load_roster(path: Path) -> list[RosterEntry]:
     if not path.exists():
         raise ConfigError(f"players file not found: {path}")
-    names: list[str] = []
+    out: list[RosterEntry] = []
     for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.split("#", 1)[0].strip()
-        if line and line.lower() not in (n.lower() for n in names):
-            names.append(line)
-    if not names:
+        e = parse_roster_line(line)
+        if e and e.name.lower() not in (x.name.lower() for x in out):
+            out.append(e)
+    if not out:
         raise ConfigError(f"no player names in {path}")
-    return names
+    return out
+
+
+def load_players(path: Path) -> list[str]:
+    return [e.name for e in load_roster(path)]
 
 
 def load_config() -> Config:
@@ -68,5 +105,6 @@ def load_config() -> Config:
     if not key or key == "paste-your-key-here":
         raise ConfigError("BALLCHASING_API_KEY missing: copy .env.example to .env and set it")
     cfg = Config(raw=raw, api_key=key)
-    cfg.players = load_players(cfg.path("players_file"))
+    cfg.roster = load_roster(cfg.path("players_file"))
+    cfg.players = [e.name for e in cfg.roster]
     return cfg
