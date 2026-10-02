@@ -1,122 +1,66 @@
-# Rocket League replay → MP4
+# Rocket League Cinema: a fully automated YouTube channel
 
-Turns pro replays from ballchasing.com into MP4 videos of the real game. Each video contains 2 games, back to back, of the same player in the same playlist.
+[youtube.com/@RocketLeagueCinema](https://www.youtube.com/@RocketLeagueCinema)
 
-**Status:** Phases 1–3 are done: search, download, launching the game and playing the replay with a locked camera. Phase 4 (OBS recording and file naming) is written but not yet tested.
+A pipeline that turns professional Rocket League players' replays into finished YouTube videos without any human intervention. It finds and downloads pro players' replay files, plays them back inside the real game with a broadcast-style overlay, records them, makes thumbnails from frames, matches to a title that fits what happened, and uploads the result. One scheduled task a day with Task Scheduler keeps the channel running.
 
-## How it works
+Everything is driven by the replay file. A Rocket League `.replay` is a complete recording of a match: every car and the ball's position, every boost pickup and every goal, frame by frame. The game can play it back like a film. All the data in the video comes from that playback, recorded live as it plays. The stats feed the custom HUD, the exact timestamps of the goals decide the thumbnail frames, and whether the player won or lost and by how much picks the title of the YouTube video. Nothing is done by hand.
 
-1. **Search.** Queries the ballchasing API once per player in `players.txt` for pro, Supersonic Legend, ranked 1v1/2v2/3v3 games.
-2. **Pair.** Pairs up unseen games of the same player in the same playlist, played at most `max_gap_days` apart.
-3. **Download.** Downloads both `.replay` files into the Rocket League Demos folder.
-4. **Launch.** Starts BakkesMod and Rocket League (through Epic) if they aren't running.
-5. **Play.** A small BakkesMod plugin (`plugin/RLVid.cpp`) plays each replay. The camera is locked in Player View on the player from `players.txt`, and optionally switches to the Director camera during kickoffs. The replay controls HUD is hidden, while name tags and the scoreboard stay visible.
-6. **Record.** OBS records both games into one file, paused while game 2 loads. The video is saved as `YYYY-MM-DD_<player>_<1v1|2v2|3v3>.mp4`.
-7. **Track.** Both replays are added to `history.json`, but only after the video has been saved.
+### Overlays
 
-Python talks to the plugin through BakkesMod's rcon websocket (port 9002), and the plugin reports its state in `%APPDATA%\bakkesmod\bakkesmod\data\rlvid_status.json`.
+| Before the custom html/css/js HUD                   | After the custom HUD                          |
+| --------------------------------------------------- | --------------------------------------------- |
+| ![Without overlay](docs/images/without-overlay.jpg) | ![With overlay](docs/images/with-overlay.jpg) |
 
-## Setup
+| Intro overlay with all players         | Generated thumbnail                     |
+| -------------------------------------- | --------------------------------------- |
+| ![Glitch intro](docs/images/intro.jpg) | ![Thumbnail](docs/images/thumbnail.jpg) |
 
-### 1. Python
+## What a daily run does
 
-```
-pip install -r requirements.txt
-```
-
-### 2. ballchasing API key
-
-Log in at https://ballchasing.com (Steam login), open https://ballchasing.com/upload, and copy the API key shown there. Then copy `.env.example` to `.env` and fill in `BALLCHASING_API_KEY`.
-
-### 3. Players and settings
-
-- **`players.txt`:** one name per line, `#` for comments. If several listed players are in a match, the camera follows the one listed first.
-- **`config.toml`:** filters, paths, camera and pairing settings. With `demos_dir = "auto"`, the Demos folder is found through your Windows Documents folder, including when Documents is in OneDrive.
-
-### 4. Rocket League (Epic) + BakkesMod
-
-1. Install BakkesMod from https://bakkesmod.com. Start it once together with the game, so it downloads its files to `%APPDATA%\bakkesmod`.
-2. In the Epic Games Launcher, open **Library**, then **⋯** on Rocket League, then **Manage**. Turn on **Launch Options** and enter `-noeac`. Without this, Epic starts the game with anti-cheat and BakkesMod can't load.
-3. Set the in-game video settings once, for example: your recording resolution (1920×1080), a frame rate cap that matches OBS (60), and High Quality render quality with max texture/world detail.
-
-### 5. Build and install the RLVid plugin
-
-You need the MSVC C++ build tools. Visual Studio (2019 or 2022) with "Desktop development with C++", or the VS Build Tools, both work.
-
-```
-plugin\build.bat
+```mermaid
+flowchart LR
+    A[Leaderboard +<br/>players.txt] --> B[Search ballchasing.com<br/>by Steam ID]
+    B --> C[Pick a player<br/>weighted, with cooldown]
+    C --> D[Play 2 replays in<br/>Rocket League via a<br/>BakkesMod plugin]
+    D --> E[Record with OBS<br/>+ live HTML overlay]
+    E --> F[Thumbnails from<br/>goal moments]
+    F --> G[Title from the result,<br/>description, tags]
+    G --> H[Upload to YouTube]
 ```
 
-Then, with the game closed:
+1. **Find players and games.** I fetch an online leaderboard of the top 100 players, and pull one of their games randomly from [ballchasing.com](https://ballchasing.com).
+2. **Play the replays in the real game.** A custom C++ BakkesMod plugin loads each `.replay` file into Rocket League and does the camera work. It holds the first frame until recording starts, and reads the live game data from the playback (score, clock, boost, stats, goals) 30 times a second.
+3. **Record a broadcast.** OBS is driven over its WebSocket API. An HTML/CSS/JS overlay, fed by a small local web server, draws a scoreboard, player boost bars and a stats bar, plus an intro banner listing all players at the start of each game. The two games are joined with fades to black, and the loading screen in between is cut.
+4. **Make thumbnails.** Frames are taken just before and after the featured player's fastest goal, then the player's name and rank emblem are composited on with a headless browser.
+5. **Write the title.** The YouTube title is created with pattern-matching, based on what happened in the games e.g. `[wins=2]`, `[goals>=4]`, `[comebacks>=1]`
+6. **Upload and clean up.** The video is uploaded through the YouTube Data API (OAuth) along with its thumbnail. The large video file is then deleted.
+7. **Choose who's next.** Each player's priority is _weight × days since their last video_, so over time popular players appear more often but every player has a chance. There's a history file so the same game doesn't get posted twice. There's also a cooldown so nobody appears two days in a row.
 
-1. Copy `plugin\build\RLVid.dll` to `%APPDATA%\bakkesmod\bakkesmod\plugins\`.
-2. Add `plugin load rlvid` as a new line in `%APPDATA%\bakkesmod\bakkesmod\cfg\plugins.cfg`.
-3. Add `rlvid_play`, `rlvid_release`, `rlvid_info` and `rlvid_kickoff_keep_focus` as new lines in `%APPDATA%\bakkesmod\bakkesmod\data\rcon_commands.cfg`. This allows the tool to send those commands over rcon.
+## Engineering highlights
 
-The tool reads the rcon password from BakkesMod's `cfg\config.cfg`, so you don't need to copy it anywhere.
+Some of the more interesting problems along the way:
 
-Note: BakkesMod's rcon server listens on all network interfaces, protected by that random password. On a home network behind a router this is fine.
+- **The camera grabbed the wrong player.** When the camera cut from the wide kickoff shot back to the featured player, the game would flash through other players for a split second, and the on-screen boost meter sometimes ended up showing someone else's boost. Logging every single frame showed that, for one frame, the game thought it was following the viewer instead of a player. The fix was to stay focused on the featured player even during the wide shot, so the cut back is just a change of camera angle. This works most of the time but occassionally some weird stuff still happens.
+- **Goal times drifted.** The replay's own clock doesn't run at a steady pace, so goal times calculated from it were off by up to 10 seconds by the end of a game, and thumbnails showed the wrong moment. Goals are now timed with the computer's real clock as they happen, converted into a position in the video, and checked frame by frame against the scoreboard changing.
+- **Boost numbers were out-of-sync.** The overlay's boost sometimes read 1-2 higher than the game's own meter. It turned out to be rounding errors (the game always rounds down) as well as a delay of about a third of a second. With both fixed, the numbers match frame for frame.
+- **HUD was flickering sometimes.** Every few seconds the overlay vanished for one frame. Through logging, I discovered that the overlay would sometimes read its data at the exact instant the file was being rewritten, got nothing, and hid itself. Now it keeps the last good data, and only hides after half a second without any.
+- **Fair picks and fitting titles.** Who gets the next video is a weighted draw, so popular players appear more often while everyone still gets a turn, and no one appears two days in a row. Titles are written in a small rule format ("only if they won both games", "only with 4+ goals"). Both are covered by tests, including checks that the picks really come out in the right proportions.
+- **Built to run unattended.** Anything outside the program's control has a plan B: a saved copy of the leaderboard if it can't be downloaded, another network port if one is busy, no recording when the disk is nearly full, uploads that still happen after a failed recording, and a game window that's restored if something else steals focus. Every run writes a log.
 
-### 6. OBS Studio
+## Tech stack
 
-1. Install OBS Studio 28 or newer from https://obsproject.com. The WebSocket server is built in.
-2. **WebSocket:** open **Tools → WebSocket Server Settings**, tick **Enable WebSocket server** and keep port 4455. Click **Show Connect Info**, copy the password, and add it to `.env` as `OBS_WEBSOCKET_PASSWORD=...`.
-3. **Scene:** add a source with **+ → Game Capture**, mode **Capture specific window**, window `[RocketLeague.exe] Rocket League`. **Untick "Capture Cursor"** so the mouse never appears in the video. Set Rocket League's display mode to **Borderless**. In exclusive fullscreen, Windows minimizes the game when another window takes focus, and a minimized game records as black.
-4. **Audio:** keep Desktop Audio for the game sound, and mute or remove the microphone.
-5. **Video:** in **Settings → Video**, set Base and Output resolution to 1920x1080 and FPS to 60.
-6. **Output:** in **Settings → Output**, set Output Mode to **Advanced**, then open the **Recording** tab:
-   - **Recording Format:** **Hybrid MP4** (OBS 30.2+), or **MP4** on older versions. Hybrid MP4 survives crashes; plain MP4 does not. Don't use MKV: the tool expects the file OBS reports when recording stops, and it moves that file.
-   - **Encoder:** your GPU's hardware encoder: NVIDIA NVENC H.264/HEVC, AMD HW H.264, or Intel QuickSync. On an NVIDIA RTX card, use NVENC H.264, Preset **P5: Slow (Good Quality)**, Tuning **High Quality**, Multipass **Two Passes (Quarter Resolution)**, Profile **high**.
-   - **Rate control:** CQP/CQ level 18–20 for high quality, or CBR at about 40–50 Mbps for 1080p60.
-   - **Recording Path:** any folder. The tool moves the finished file to `output_dir` from `config.toml`.
-7. The tool manages OBS itself. With `fresh_start = true` in `[game]` (the default), each run first closes OBS, Rocket League and BakkesMod (after downloading the replays), then starts them again in that order, and leaves them open afterwards. If OBS is recording when a run starts, it asks for confirmation instead of closing, and the run stops with an error rather than cutting that recording off. Keep only one copy of OBS open: with two copies, both try to capture the game and the recording turns black, so the tool refuses to run. OBS is started with `--disable-shutdown-check`, so after a crash it starts normally instead of asking about Safe Mode.
+| Area             | Tool used                                                                                  |
+| ---------------- | ------------------------------------------------------------------------------------------ |
+| Language         | Python 3.12                                                                                |
+| In-game control  | C++ BakkesMod plugin (BakkesMod SDK), rcon over WebSocket                                  |
+| Recording        | OBS Studio 32 via obs-websocket v5                                                         |
+| Overlay          | HTML/CSS/JS browser source, served by a local Python HTTP server                           |
+| Video and images | ffmpeg, headless Microsoft Edge for compositing                                            |
+| Data sources     | ballchasing.com REST API, rlstats.net (BeautifulSoup)                                      |
+| Publishing       | YouTube Data API v3 with OAuth 2.0                                                         |
+| Testing          | `unittest` to test naming, overlays, stats, titles, scheduling, uploads and the HUD server |
 
-### 7. YouTube
+## Running it
 
-Videos are uploaded as **private**: you publish them yourself in YouTube Studio. (Google locks videos uploaded through an API project to private until the project passes Google's audit.)
-
-1. **Channel:** in YouTube, open **Settings → Add or manage your channel(s) → Create a channel**. This makes a separate channel managed by your normal Google account; no new account is needed.
-2. **Custom thumbnails:** in YouTube Studio, verify the channel by phone (**Settings → Channel → Feature eligibility**). Without it, uploads still work but the thumbnail is not set.
-3. **Google Cloud project:** at https://console.cloud.google.com create a project, then:
-   - **APIs & Services → Library:** enable **YouTube Data API v3**.
-   - **APIs & Services → OAuth consent screen:** User type **External**, fill in the app name and your email. Under **Test users**, add the Google account that owns the channel. Then **Publish app** (to "In production"); in "Testing" the sign-in expires after 7 days.
-   - **APIs & Services → Credentials → Create credentials → OAuth client ID:** application type **Desktop app**. Download the JSON file and save it in this folder as `youtube_client_secret.json`.
-4. **Sign in once:** run `python upload.py --login`. A browser opens: sign in, **choose the Rocket League channel**, and allow access. Google may warn that the app isn't verified: click **Advanced → Go to (app name)**. The sign-in is saved in `youtube_token.json`.
-
-`youtube_client_secret.json` and `youtube_token.json` are secrets: they are in `.gitignore`, don't share them.
-
-## Usage
-
-```
-python pick.py   # numbered list of unseen game pairs; type a number to record it
-python auto.py   # newest unseen pair, no prompts
-python upload.py # upload every recorded video that isn't on YouTube yet
-python daily.py  # auto.py then upload.py: the one to run from Task Scheduler
-python thumbnails.py "<video>.mp4"   # remake a video's thumbnail candidates
-```
-
-- **Each video** is saved in `output_dir` with a `.json` data file (names, scores, goal times) and 5 thumbnail candidates (`_thumb_1s-before.jpg`, …).
-- **Uploading** (`[youtube]` in `config.toml`): the title, description and tags are generated from the data file. Titles come from `titles.txt` (one pattern per line, picked at random; edit or add lines freely); the thumbnail is `1s-before` unless set otherwise. After a successful upload the YouTube link is saved in `history.json` and the video and data file are deleted; the thumbnails are kept, so you can pick another one in YouTube Studio. A failed upload is retried on the next run. When YouTube's daily limit is reached (about 6 uploads a day), uploading stops until the next run.
-
-- **Logs:** each run writes a log file to `logs/`.
-- **Failures:** a failed run (API, game, OBS) is logged and nothing is marked as done. A partial recording is left in the OBS recording folder.
-
-## Running it every day (Task Scheduler)
-
-`daily.py` records one video and uploads everything waiting. To run it every day:
-
-1. Open **Task Scheduler** and choose **Create Task…** (not "Create Basic Task").
-2. **General:** name it (e.g. `RL daily video`) and select **Run only when user is logged on**. Rocket League and OBS need your desktop: with "Run whether user is logged on or not" they start invisibly and the recording is black.
-3. **Triggers → New…:** Daily, at a time the PC is on and you're not using it.
-4. **Actions → New…:** Start a program.
-   - **Program/script:** `C:\Python312\python.exe`
-   - **Add arguments:** `daily.py`
-   - **Start in:** `C:\Users\luisr\Projects\rocket-league-youtube`
-5. **Conditions:** untick **Start the task only if the computer is on AC power** (on a laptop).
-6. **Settings:** tick **Stop the task if it runs longer than** 2 hours, and keep **If the task is already running: Do not start a new instance**.
-
-Each run writes a log to `logs/`. A day without a video is normal when there are no new games, when the disk has less than `min_free_gb` free, or when something failed (the log says which); videos that failed to upload are retried the next day. Keep the PC from going to sleep around that time, and preferably unlocked: a locked screen may also stop the game from being captured.
-
-## Rate limits
-
-Regular ballchasing accounts can call the replay list 2 times per second and 500 times per hour, and download files 1 per second and 200 per hour. The tool makes one list call per player, waits `min_delay_seconds` (1 s by default) between calls, and backs off when ballchasing returns HTTP 429.
+It needs Windows, Rocket League with BakkesMod, OBS Studio, ffmpeg, a ballchasing.com API key, and a Google Cloud project for YouTube uploads. Every setting is explained in `config.toml`
