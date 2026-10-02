@@ -2,18 +2,32 @@
 from pathlib import Path
 from urllib.parse import urlencode
 
+from .metadata import target_team
 from .search import Match
 
 PAGE = Path(__file__).resolve().parent.parent / "overlay" / "overlay.html"
 
 
-def sides(m: Match, players: list[dict] | None = None) -> tuple[list[str], list[str]]:
+def sides(m: Match, players: list[dict] | None = None, target: str = "") -> tuple[list[str], list[str]]:
     """(blue, orange) names, with the camera player first on their side.
 
     players is the plugin's list of {"name", "team", "id"} as the game shows
     them (name tags); those names are used when the team sizes match the match
     data, otherwise the ballchasing names are.
+
+    target, if given, is shown for the camera player (first on their side)
+    unless it's the same name in another case (a player can use another name
+    in a game, e.g. dralii as "gg").
     """
+    blue, orange = _sides(m, players)
+    if target:
+        team = blue if target_team(m) == "blue" else orange
+        if team and team[0].lower() != target.lower():
+            team[0] = target
+    return blue, orange
+
+
+def _sides(m: Match, players: list[dict] | None) -> tuple[list[str], list[str]]:
     if players:
         blue = [p for p in players if p.get("team") == 0]
         orange = [p for p in players if p.get("team") == 1]
@@ -32,7 +46,7 @@ def sides(m: Match, players: list[dict] | None = None) -> tuple[list[str], list[
     return order(m.blue_players), order(m.orange_players)
 
 
-def url(settings: dict, m: Match | None = None, players: list[dict] | None = None) -> str:
+def url(settings: dict, m: Match | None = None, players: list[dict] | None = None, target: str = "") -> str:
     """Overlay URL showing the names of m (in-game names from players when usable),
     or an empty overlay if m is None."""
     q: list[tuple[str, str]] = [("style", settings.get("style", "band")),
@@ -40,6 +54,6 @@ def url(settings: dict, m: Match | None = None, players: list[dict] | None = Non
                                 ("fade", str(settings.get("fade_out_seconds", 2))),
                                 ("fadein", str(settings.get("fade_in_seconds", 0)))]
     if m:
-        blue, orange = sides(m, players)
+        blue, orange = sides(m, players, target)
         q += [("blue", n) for n in blue] + [("orange", n) for n in orange]
     return PAGE.as_uri() + "?" + urlencode(q)

@@ -41,6 +41,13 @@ class InGameNamesTest(unittest.TestCase):
         self.players[1]["name"] = "nass (renamed)"
         self.assertEqual(overlay.sides(self.m, self.players)[0], ["nass (renamed)", "Joyo"])
 
+    def test_target_name_replaces_in_game_name(self):
+        self.players[1]["name"] = "gg"
+        self.assertEqual(overlay.sides(self.m, self.players, "dralii")[0], ["dralii", "Joyo"])
+
+    def test_target_name_keeps_in_game_spelling(self):
+        self.assertEqual(overlay.sides(self.m, self.players, "NASS")[0], ["nass", "Joyo"])
+
     def test_camera_found_by_name_without_focus_id(self):
         self.m.focus_ids = {}
         self.assertEqual(overlay.sides(self.m, self.players)[0], ["nass", "Joyo"])

@@ -72,9 +72,10 @@ class HudServer:
             self._httpd.server_close()
             self._httpd = None
 
-    def set_game(self, pov_id: str | None, pov_name: str, label: str) -> None:
+    def set_game(self, pov_id: str | None, pov_name: str, label: str, pov_label: str = "") -> None:
+        """pov_label, if given, is the name shown for the POV player instead of the in-game one."""
         with self._lock:
-            self.game = {"pov_id": pov_id, "pov_name": pov_name, "label": label}
+            self.game = {"pov_id": pov_id, "pov_name": pov_name, "label": label, "pov_label": pov_label}
 
     def show_intro(self, match: int, pov: str, blue: list[str], orange: list[str]) -> None:
         with self._lock:
@@ -109,6 +110,9 @@ def build_state(data: dict, game: dict, intro: dict | None, intro_time: float, n
             p["pov"] = bool(game.get("pov_id") and p.get("id") == game["pov_id"]) or (
                 not game.get("pov_id") and p.get("name", "").lower() == game.get("pov_name", "").lower())
             pov = pov or (p if p["pov"] else None)
+        label = game.get("pov_label", "")
+        if pov and label and pov.get("name", "").lower() != label.lower():
+            pov["name"] = label
         out.update(score=data.get("score", {"blue": 0, "orange": 0}), clock=data.get("clock", 0),
                    overtime=bool(data.get("overtime")), players=players)
         if pov:

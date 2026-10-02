@@ -141,12 +141,13 @@ def process(pair: Pair, cfg, api, history) -> bool:
                     recorder.fade_in(fade_ms)  # onto the held kickoff frame
             players = (read_status() or {}).get("players")  # names as the game shows them
             if hud:
-                blue, orange = overlay.sides(m, players)
+                # The selected player's name for the target, even if they used another in this game.
+                blue, orange = overlay.sides(m, players, pair.player)
                 pov = (blue if metadata.target_team(m) == "blue" else orange)[0]
-                hud.set_game(m.camera_focus_id, m.camera_player, hud_label(cfg, m))
+                hud.set_game(m.camera_focus_id, m.camera_player, hud_label(cfg, m), pov)
                 hud.show_intro(i, pov.upper(), blue, orange)
             elif ov.get("enabled", True):
-                recorder.show_overlay(ov["source"], overlay.url(ov, m, players))  # fades out by itself
+                recorder.show_overlay(ov["source"], overlay.url(ov, m, players, pair.player))  # fades out by itself
             time.sleep(0.5)
             # Where this game starts in the video: the recording length and the
             # clock time just before release; goal times build on these.

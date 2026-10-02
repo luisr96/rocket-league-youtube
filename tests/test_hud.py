@@ -22,6 +22,17 @@ class BuildStateTest(unittest.TestCase):
         self.assertEqual(s["stats"], {"name": "Atow", "score": 345, "goals": 2, "assists": 1, "saves": 3, "shots": 4})
         self.assertEqual((s["label"], s["clock"], s["score"]), ("SSL 2v2", 245, {"blue": 1, "orange": 2}))
 
+    def test_pov_label_replaces_in_game_name(self):
+        game = {"pov_id": "Player_Steam|9|0", "pov_name": "x", "pov_label": "dralii"}
+        s = build_state(json.loads(json.dumps(PLUGIN)), game, None, 0)
+        self.assertEqual([p["name"] for p in s["players"]], ["TempoH", "dralii"])
+        self.assertEqual(s["stats"]["name"], "dralii")
+
+    def test_pov_label_keeps_in_game_spelling(self):
+        game = {"pov_id": "Player_Steam|9|0", "pov_name": "x", "pov_label": "atow"}
+        s = build_state(json.loads(json.dumps(PLUGIN)), game, None, 0)
+        self.assertEqual(s["stats"]["name"], "Atow")
+
     def test_pov_by_name_without_id(self):
         s = build_state(json.loads(json.dumps(PLUGIN)), {"pov_id": None, "pov_name": "atow"}, None, 0)
         self.assertEqual(s["stats"]["name"], "Atow")
