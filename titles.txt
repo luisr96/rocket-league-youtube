@@ -14,7 +14,7 @@
 # separated by commas, all must be true. Totals are over both games:
 #   wins, losses (0-2), goals, assists, saves, shots, points,
 #   overtime (games that went to overtime, 0-2), fastest (fastest goal, kph),
-#   comebacks (games won after being behind, 0-2)
+#   comebacks (games won after being 3 or more goals behind, 0-2)
 #   Operators: =  !=  >  >=  <  <=
 #   e.g.  [wins=2, goals>=4] {PLAYER} Drops {GOALS} Goals in {RANK} {MODE}!
 # A line without conditions can be picked for any video. A line whose conditions

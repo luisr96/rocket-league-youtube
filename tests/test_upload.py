@@ -98,12 +98,14 @@ class DescribeTest(unittest.TestCase):
         self.assertEqual(describe.fill("[saves>=5] {PLAYER}: {SAVES} saves, {GOALS} goals, {FASTEST} kph", d),
                          "ATOW: 7 saves, 3 goals, 102 kph")
 
-    def test_comebacks(self):
-        d = data()  # Atow is orange in game 1 (won 4-2), blue in game 2 (won 6-3)
-        g1 = [{"team": "blue"}, {"team": "blue"}, {"team": "orange"}, {"team": "orange"}, {"team": "orange"}, {"team": "orange"}]
-        g2 = [{"team": "blue"}, {"team": "orange"}, {"team": "blue"}]  # level at most, never behind
-        d["games"][0]["goals"], d["games"][1]["goals"] = g1, g2
+    def test_comebacks_need_a_three_goal_deficit(self):
+        d = data()  # Atow is orange in game 1, blue in game 2; both won
+        b, o = {"team": "blue"}, {"team": "orange"}
+        d["games"][0]["goals"] = [b, b, b, o, o, o, o]          # orange (Atow) 0-3 down, won 4-3: comeback
+        d["games"][1]["goals"] = [o, o, b, b, b]                 # blue (Atow) only 0-2 down: not a comeback
         self.assertEqual(describe.facts(d)["comebacks"], 1)
+        d["games"][0]["goals"] = [b, b, o, o, o, o]              # only 0-2 down
+        self.assertEqual(describe.facts(d)["comebacks"], 0)
 
     def test_lost_both_never_gets_a_win_title(self):
         d = data()

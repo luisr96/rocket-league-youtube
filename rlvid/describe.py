@@ -19,6 +19,7 @@ CONDITION_VARS = {"wins", "losses", "goals", "assists", "saves", "shots", "point
 NUMBER_PLACEHOLDERS = {"GOALS": "goals", "ASSISTS": "assists", "SAVES": "saves", "SHOTS": "shots",
                        "POINTS": "points", "WINS": "wins", "FASTEST": "fastest"}
 PLACEHOLDERS = {"PLAYER", "RANK", "MODE"} | set(NUMBER_PLACEHOLDERS)
+COMEBACK_DEFICIT = 3  # a won game counts as a comeback if the team was this many goals behind at some point
 _COND = re.compile(r"^\s*(\w+)\s*(>=|<=|!=|=|>|<)\s*(\d+)\s*$")
 _OPS = {"=": lambda a, b: a == b, "!=": lambda a, b: a != b, ">": lambda a, b: a > b,
         ">=": lambda a, b: a >= b, "<": lambda a, b: a < b, "<=": lambda a, b: a <= b}
@@ -84,14 +85,13 @@ def facts(data: dict) -> dict:
     ot = [g.get("overtime") for g in games]
 
     def comeback(g):
-        """Won after being behind at some point (from the order of the goals)."""
+        """Won after being COMEBACK_DEFICIT or more goals behind (from the order of the goals)."""
         team = g["target"]["team"]
-        us = them = 0
-        behind = False
+        us = them = deficit = 0
         for x in g.get("goals", []):
             us, them = (us + 1, them) if x.get("team") == team else (us, them + 1)
-            behind = behind or them > us
-        return won(g) and behind
+            deficit = max(deficit, them - us)
+        return won(g) and deficit >= COMEBACK_DEFICIT
 
     return {
         "wins": sum(1 for g in games if won(g)),
