@@ -356,8 +356,13 @@ void RLVid::UpdateKickoff()
     int frame = server.GetCurrentReplayFrame();
     auto ball = server.GetBall();
     if (!ball) return;  // e.g. during the goal explosion: keep the current view
+    // At a kickoff the ball rests on the centre spot (Z ~93). Checking only X/Y
+    // also caught the ball passing over the centre in play (switching to the
+    // Director mid-game), so it must be low and still too.
     Vector loc = ball.GetLocation();
-    bool atCentre = std::abs(loc.X) < 20 && std::abs(loc.Y) < 20;
+    Vector vel = ball.GetVelocity();
+    bool atCentre = std::abs(loc.X) < 20 && std::abs(loc.Y) < 20 && loc.Z < 120
+                    && std::abs(vel.X) + std::abs(vel.Y) + std::abs(vel.Z) < 10;
 
     if (atCentre) {
         inKickoff_ = true;
