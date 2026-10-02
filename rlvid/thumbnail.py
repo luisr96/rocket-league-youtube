@@ -12,6 +12,8 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlencode
 
+from .describe import player_name
+
 log = logging.getLogger(__name__)
 
 OVERLAY_DIR = Path(__file__).resolve().parent.parent / "overlay"
@@ -59,11 +61,8 @@ def rank_icon(data: dict) -> Path | None:
 
 def page_url(settings: dict, frame: Path, data: dict) -> str:
     """The thumbnail page for one frame. Zoom and sharpening are done by ffmpeg on the frame itself."""
-    g1 = data["games"][0]
-    overlay = g1["overlay"]
-    team = g1["target"]["team"]
-    # The target's name as the game shows it: first on their side of the overlay.
-    big = overlay[team][0] if overlay.get(team) else g1["target"]["name"]
+    overlay = data["games"][0]["overlay"]
+    big = player_name(data)
     q = [("bg", frame.as_uri()),
          ("big", big if settings.get("big_name", True) else ""),
          ("layout", settings.get("layout", "corner")),

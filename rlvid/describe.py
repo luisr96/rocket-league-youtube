@@ -133,10 +133,16 @@ def rank_names(rank_id: str) -> tuple[str, str]:
 
 
 def player_name(data: dict) -> str:
-    """The target's name as the game shows it (first on their side in game 1)."""
-    g1 = data["games"][0]
-    side = g1["overlay"].get(g1["target"]["team"]) or []
-    return side[0] if side else g1["target"]["name"]
+    """The selected player's name, spelled as the game shows it when a game's in-game
+    name matches it (a player can use another name in a game, e.g. "gg")."""
+    chosen = data.get("player") or ""
+    names = []
+    for g in data["games"]:
+        side = g["overlay"].get(g["target"]["team"]) or []
+        names.append(side[0] if side else g["target"]["name"])
+    if not chosen:
+        return names[0]
+    return next((n for n in names if n.lower() == chosen.lower()), chosen)
 
 
 def _clean(s: str) -> str:
