@@ -10,6 +10,10 @@ from pathlib import Path
 import obsws_python as obs
 
 log = logging.getLogger(__name__)
+
+# Console tools (tasklist, taskkill, ffmpeg) open no window: under pythonw each
+# would otherwise flash one up.
+NO_WINDOW = subprocess.CREATE_NO_WINDOW
 # obsws-python logs connection parameters (including the password) at INFO and
 # full tracebacks for errors we handle ourselves; keep only its critical messages.
 logging.getLogger("obsws_python").setLevel(logging.CRITICAL)
@@ -20,7 +24,7 @@ class ObsError(Exception):
 
 
 def _obs_processes() -> int:
-    out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq obs64.exe", "/NH"], capture_output=True, text=True).stdout
+    out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq obs64.exe", "/NH"], capture_output=True, text=True, creationflags=NO_WINDOW).stdout
     return out.lower().count("obs64.exe")
 
 
@@ -66,13 +70,21 @@ def stop_leftover(host: str, port: int) -> None:
         return
     try:
         r = Recorder(host, port, timeout=3)
+    except Exception as e:  # OBS not reachable etc.: close_all reports any real problem
+        log.warning("could not check OBS for a leftover recording: %s", e)
+        return
+    try:
         if r._status().output_active:
             path = r.client.stop_record().output_path
             r._wait(lambda s: not s.output_active, "leftover recording to stop", timeout=60)
             log.warning("stopped a recording left running by an earlier run: %s", path)
             print(f"Stopped a recording left running by an earlier run ({path}).")
-    except Exception as e:  # OBS not reachable etc.: close_all reports any real problem
+    except Exception as e:
         log.warning("could not check OBS for a leftover recording: %s", e)
+    finally:
+        # Close the connection: OBS waits about a minute on an open one when
+        # asked to quit, which made close_all time out.
+        r.client.disconnect()
 
 
 class Recorder:

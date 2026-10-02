@@ -16,6 +16,10 @@ from .describe import player_name
 
 log = logging.getLogger(__name__)
 
+# Console tools (tasklist, taskkill, ffmpeg) open no window: under pythonw each
+# would otherwise flash one up.
+NO_WINDOW = subprocess.CREATE_NO_WINDOW
+
 OVERLAY_DIR = Path(__file__).resolve().parent.parent / "overlay"
 PAGE = OVERLAY_DIR / "thumbnail.html"
 
@@ -101,7 +105,7 @@ def find_edge(configured: str = "") -> str:
 
 
 def _run(cmd: list[str], what: str) -> None:
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, creationflags=NO_WINDOW)
     if r.returncode != 0:
         raise ThumbnailError(f"{what} failed: {(r.stderr or r.stdout).strip()[-300:]}")
 

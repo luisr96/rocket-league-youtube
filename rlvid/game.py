@@ -10,6 +10,10 @@ from .bakkes import BakkesError, Rcon, read_status
 
 log = logging.getLogger(__name__)
 
+# Console tools (tasklist, taskkill, ffmpeg) open no window: under pythonw each
+# would otherwise flash one up.
+NO_WINDOW = subprocess.CREATE_NO_WINDOW
+
 
 class GameError(Exception):
     pass
@@ -17,7 +21,7 @@ class GameError(Exception):
 
 def _running(image: str) -> bool:
     out = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {image}", "/NH"],
-                         capture_output=True, text=True).stdout
+                         capture_output=True, text=True, creationflags=NO_WINDOW).stdout
     return image.lower() in out.lower()
 
 
@@ -69,7 +73,7 @@ def close_game() -> None:
     if _running("RocketLeague.exe"):
         log.info("closing RocketLeague.exe")
         print("Closing Rocket League ...")
-        subprocess.run(["taskkill", "/IM", "RocketLeague.exe", "/F"], capture_output=True)
+        subprocess.run(["taskkill", "/IM", "RocketLeague.exe", "/F"], capture_output=True, creationflags=NO_WINDOW)
 
 
 def close_all(timeout: float = 60) -> None:
@@ -82,7 +86,7 @@ def close_all(timeout: float = 60) -> None:
     for image, force in (("obs64.exe", False), ("RocketLeague.exe", True), ("BakkesMod.exe", True)):
         if _running(image):
             log.info("closing %s", image)
-            subprocess.run(["taskkill", "/IM", image] + (["/F"] if force else []), capture_output=True)
+            subprocess.run(["taskkill", "/IM", image] + (["/F"] if force else []), capture_output=True, creationflags=NO_WINDOW)
             closing.append(image)
     if closing:
         print(f"Closing {', '.join(closing)} for a fresh start ...")

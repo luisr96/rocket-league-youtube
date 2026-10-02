@@ -6,6 +6,10 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
+# Console tools (tasklist, taskkill, ffmpeg) open no window: under pythonw each
+# would otherwise flash one up.
+NO_WINDOW = subprocess.CREATE_NO_WINDOW
+
 
 class VideoError(Exception):
     pass
@@ -29,7 +33,7 @@ def finalize(ffmpeg: str, src: Path, dest: Path) -> None:
     tmp = dest.with_suffix(".part.mp4")
     cmd = [ffmpeg, "-v", "error", "-y", "-i", str(src), "-map", "0", "-c", "copy",
            "-movflags", "+faststart", str(tmp)]
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, creationflags=NO_WINDOW)
     if r.returncode != 0 or not tmp.exists() or tmp.stat().st_size == 0:
         tmp.unlink(missing_ok=True)
         raise VideoError(f"ffmpeg remux failed: {r.stderr.strip()[:500]}")
