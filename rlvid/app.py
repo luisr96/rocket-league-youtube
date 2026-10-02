@@ -174,7 +174,7 @@ def process(pair: Pair, cfg, api, history) -> bool:
             now = read_hud()
             stats, overtime = metadata.end_stats(m, now if now and now.get("in_replay") else last_hud.get("data"))
             log.info("game %d stats: %s overtime: %s", i, stats, overtime)
-            games.append(metadata.game(i, m, overlay.sides(m, players), game_goals, video_start, stats, overtime))
+            games.append(metadata.game(i, m, overlay.sides(m, players, pair.player), game_goals, video_start, stats, overtime))
             if fade_ms:  # to black after each game, including the end of the video
                 recorder.fade_out(o.get("transition_scene", "RLVid Black"), fade_ms)
             if i == 1:
