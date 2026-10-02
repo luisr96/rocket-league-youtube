@@ -10,3 +10,4 @@ leaderboard.json
 plugin/build/*.obj
 plugin/build/*.lib
 plugin/build/*.exp
+run.lock

@@ -359,6 +359,17 @@ def cmd_auto(cfg, api, history) -> int:
 
 
 def run(command) -> int:
+    """Run command, unless another run is in progress (see rlvid/runlock.py)."""
+    from .config import ROOT
+    from .runlock import RunLock
+    with RunLock(ROOT / "run.lock") as lock:
+        if lock.f is None:
+            print(f"Another run is in progress ({lock.holder}); exiting.")
+            return 3
+        return _run(command)
+
+
+def _run(command) -> int:
     """Load config, set up logging and the API client, then run command(cfg, api, history)."""
     try:
         cfg = load_config()
