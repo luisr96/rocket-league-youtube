@@ -93,11 +93,13 @@ def process(pair: Pair, cfg, api, history) -> bool:
     replays = [download(cfg, api, m) for m in pair.matches]
 
     g = cfg.raw["game"]
+    o = cfg.raw["obs"]
+    obs.stop_leftover(o["host"], o["port"])  # from a killed run; we hold the run lock
     if g.get("fresh_start", True):
         # A recording OBS asks for confirmation instead of closing; close_all
-        # then times out with an error rather than cutting that recording off.
+        # then times out with an error rather than cutting that recording off
+        # (a leftover one from a killed run was stopped above).
         game.close_all()
-    o = cfg.raw["obs"]
     recorder = obs.connect(o["host"], o["port"], o["exe"])  # OBS first, so it can't steal focus from the game
     kickoff = cfg.raw.get("camera", {}).get("kickoff_director_seconds", 0)
     buffer = cfg.raw["recording"]["buffer_seconds"]

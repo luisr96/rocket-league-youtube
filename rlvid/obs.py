@@ -58,6 +58,23 @@ def connect(host: str, port: int, exe: str, timeout: float = 60) -> "Recorder":
             time.sleep(2)
 
 
+def stop_leftover(host: str, port: int) -> None:
+    """Stop a recording left running by a run that was killed (no chance to abort it).
+    Otherwise OBS asks "still recording, close anyway?" and close_all can't close it.
+    Only call this holding the run lock: then no other run's recording is active."""
+    if not _obs_processes():
+        return
+    try:
+        r = Recorder(host, port, timeout=3)
+        if r._status().output_active:
+            path = r.client.stop_record().output_path
+            r._wait(lambda s: not s.output_active, "leftover recording to stop", timeout=60)
+            log.warning("stopped a recording left running by an earlier run: %s", path)
+            print(f"Stopped a recording left running by an earlier run ({path}).")
+    except Exception as e:  # OBS not reachable etc.: close_all reports any real problem
+        log.warning("could not check OBS for a leftover recording: %s", e)
+
+
 class Recorder:
     def __init__(self, host: str, port: int, timeout: float = 5):
         password = os.getenv("OBS_WEBSOCKET_PASSWORD", "")
