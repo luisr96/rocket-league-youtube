@@ -35,6 +35,11 @@ class Match:
         return (self.date, tuple(sorted(p.lower() for p in self.blue_players + self.orange_players)), self.score)
 
     @property
+    def fingerprint_key(self) -> tuple:
+        """The fingerprint with the date as text, as stored in history."""
+        return (self.date.isoformat(),) + self.fingerprint[1:]
+
+    @property
     def camera_player(self) -> str:
         return self.featured[0]
 
@@ -174,7 +179,10 @@ def to_match(r: dict, wanted: list) -> Match | None:
     )
 
 
-def find_unseen(api: Ballchasing, cfg, seen: set[str], players: list[Player] | None = None) -> list[Match]:
+def find_unseen(api: Ballchasing, cfg, seen: set[str], players: list[Player] | None = None,
+                seen_fingerprints: set[tuple] = frozenset()) -> list[Match]:
+    """Matches of the players not recorded yet: not by id (seen) nor as the same game
+    uploaded again under a new id (seen_fingerprints, from history)."""
     players = players if players is not None else [Player(n) for n in cfg.players]
     s = cfg.search
     base = {
@@ -198,6 +206,8 @@ def find_unseen(api: Ballchasing, cfg, seen: set[str], players: list[Player] | N
             if r["id"] in seen or r["id"] in found:
                 continue
             m = to_match(r, players)
+            if m and m.fingerprint_key in seen_fingerprints:
+                continue  # same game as one already recorded, uploaded again
             if m and m.fingerprint not in fingerprints:
                 found[m.id] = m
                 fingerprints.add(m.fingerprint)

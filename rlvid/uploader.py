@@ -11,6 +11,7 @@ from datetime import date
 from pathlib import Path
 
 from . import describe, youtube
+from .config import project_path
 
 log = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ RECENT_TITLES = 5  # a title used in this many latest uploads is not picked agai
 
 def upload_one(yt, video: Path, settings: dict, history) -> str:
     data = json.loads(video.with_suffix(".json").read_text(encoding="utf-8"))
-    titles = describe.load_titles(Path(settings.get("titles_file", "titles.txt")))
+    titles = describe.load_titles(project_path(settings.get("titles_file", "titles.txt")))
     used = [e["youtube_title"] for e in history.entries if e.get("youtube_title")]
     recent = list(dict.fromkeys(reversed(used)))[:RECENT_TITLES]  # newest first, one per video
     title = describe.title(data, titles, recent, special_weight=float(settings.get("special_title_weight", 3)))
@@ -60,9 +61,9 @@ def upload_one(yt, video: Path, settings: dict, history) -> str:
         try:
             youtube.set_thumbnail(yt, vid, thumb)
             print(f"  thumbnail: {thumb.name}")
-        except youtube.QuotaError:
-            raise
-        except youtube.YouTubeError as e:  # e.g. channel not verified for custom thumbnails
+        # Any failure here (also the daily quota) is only a warning: the video is already
+        # on YouTube and marked uploaded, so stopping now would leave its files behind.
+        except youtube.YouTubeError as e:  # e.g. channel not verified, or quota used up
             log.warning("thumbnail not set for %s: %s", vid, e)
             print(f"  WARNING: thumbnail not set ({e}); set it in YouTube Studio")
 
@@ -83,8 +84,8 @@ def cmd_upload(cfg, api, history) -> int:
     if not videos:
         print("Nothing to upload.")
         return 0
-    yt = youtube.connect(Path(s.get("client_secrets", "youtube_client_secret.json")),
-                         Path(s.get("token_file", "youtube_token.json")))
+    yt = youtube.connect(project_path(s.get("client_secrets", "youtube_client_secret.json")),
+                         project_path(s.get("token_file", "youtube_token.json")))
     failed = 0
     for v in videos:
         try:

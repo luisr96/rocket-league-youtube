@@ -6,3 +6,7 @@ __pycache__/
 youtube_client_secret.json
 youtube_token.json
 leaderboard.json
+# plugin build intermediates (the DLL itself stays tracked)
+plugin/build/*.obj
+plugin/build/*.lib
+plugin/build/*.exp

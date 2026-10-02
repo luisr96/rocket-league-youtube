@@ -99,7 +99,8 @@ def facts(data: dict) -> dict:
         "goals": total("goals") if have_stats else len(target_goals),
         "assists": total("assists"), "saves": total("saves"), "shots": total("shots"), "points": total("points"),
         "overtime": sum(1 for o in ot if o) if games and all(o is not None for o in ot) else None,
-        "fastest": round(max((x.get("speed", 0) for x in target_goals), default=0)),
+        # None (unknown) without a goal by the target, so a title never says "0 KPH"
+        "fastest": round(max(x.get("speed", 0) for x in target_goals)) if target_goals else None,
         "comebacks": sum(1 for g in games if comeback(g)),
     }
 

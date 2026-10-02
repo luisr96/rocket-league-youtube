@@ -62,6 +62,9 @@ buffer_seconds = 30
 # Debugging: > 0 records only this many seconds of each game, adds "_debug" to
 # the file name and does not mark the games as done (so they can be re-run).
 debug_seconds = 0
+# auto.py / daily.py don't record when the video drive has less free space than this
+# (a video is ~4 GB; daily.py still uploads, which deletes uploaded videos).
+min_free_gb = 20
 
 [obs]
 # OBS WebSocket server (Tools > WebSocket Server Settings). Password goes in .env

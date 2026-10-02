@@ -60,10 +60,15 @@ class GetTest(unittest.TestCase):
 
     def test_failure_uses_saved_list_or_nothing(self):
         boom = leaderboard.LeaderboardError("HTTP 403")
-        with mock.patch.object(leaderboard, "fetch", side_effect=boom), mock.patch("builtins.print"):
-            self.assertEqual(leaderboard.get({}, self.cache), [])        # nothing saved: players.txt only
-            leaderboard.save_cache(self.cache, leaderboard.parse(page()))
+        with mock.patch.object(leaderboard, "fetch", side_effect=boom) as f, mock.patch("builtins.print"):
+            self.assertEqual(leaderboard.get({}, self.cache, now=1000), [])   # nothing saved: players.txt only
+            self.assertEqual(leaderboard.get({}, self.cache, now=2000), [])   # failed an hour ago: not retried
+            self.assertEqual(f.call_count, 1)
+            leaderboard.save_cache(self.cache, leaderboard.parse(page()), fetched=0.5)
             self.assertEqual(len(leaderboard.get({}, self.cache, now=10 ** 12)), 25)  # old, but used
+            self.assertEqual(f.call_count, 2)
+            self.assertEqual(len(leaderboard.get({}, self.cache, now=10 ** 12 + 60)), 25)  # failure counted: no retry
+            self.assertEqual(f.call_count, 2)
 
     def test_top_and_disabled(self):
         leaderboard.save_cache(self.cache, leaderboard.parse(page()))
@@ -107,6 +112,28 @@ class CombineAndMatchTest(unittest.TestCase):
              "duration": 300, "blue": team([("ZEN!", "111"), ("x", "5")], 2), "orange": team([("y", "6"), ("z", "7")], 1)}
         m = to_match(r, [Player("zen", "111")])
         self.assertEqual((m.camera_player, m.camera_listed), ("ZEN!", "zen"))
+
+
+class DuplicateTest(unittest.TestCase):
+    def test_game_reuploaded_under_a_new_id_is_skipped(self):
+        from rlvid.history import History
+        def team(players, goals):
+            return {"goals": goals, "players": [{"name": n, "id": {"platform": "steam", "id": i}} for n, i in players]}
+        def replay(rid):
+            return {"id": rid, "date": "2026-01-01T12:00:00+00:00", "playlist_id": "ranked-doubles", "map_name": "m",
+                    "duration": 300, "blue": team([("Zen", "111"), ("x", "5")], 2), "orange": team([("y", "6"), ("z", "7")], 1)}
+        m = to_match(replay("old-id"), [Player("zen", "111")])
+        with tempfile.TemporaryDirectory() as d:
+            h = History(Path(d) / "history.json")
+            h.add({"id": "old-id", "game_date": m.date.isoformat(), "score": m.score,
+                   "players": {"blue": m.blue_players, "orange": m.orange_players}})
+            api = mock.Mock()
+            api.list_replays.return_value = [replay("new-id")]  # same game, uploaded again
+            cfg = mock.Mock(search={"playlists": [], "min_rank": "", "max_rank": "", "sort_by": "replay-date",
+                                    "count_per_player": 50})
+            from rlvid.search import find_unseen
+            self.assertEqual(find_unseen(api, cfg, h.ids(), [Player("zen", "111")], h.fingerprints()), [])
+            self.assertEqual(len(find_unseen(api, cfg, h.ids(), [Player("zen", "111")])), 1)  # without the check
 
 
 class ScheduleTest(unittest.TestCase):

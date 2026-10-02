@@ -105,18 +105,21 @@ def process(pair: Pair, cfg, api, history) -> bool:
     fade_ms = o.get("transition_ms", 0)
     ov = cfg.raw.get("overlay", {})
     h = cfg.raw.get("hud", {})
-    hud = None
-    if h.get("enabled", True):
-        # The broadcast overlay (scoreboard, players, stats, intro) replaces the names overlay.
-        hud = HudServer(int(h.get("port", 8765)))
-        hud.start()
-        recorder.setup_overlay(h.get("source", "RLVid HUD"), hud_url(hud, h))
-        recorder.hide_source(ov.get("source", "RLVid Names"))
-    elif ov.get("enabled", True):
-        recorder.setup_overlay(ov["source"], overlay.url(ov))
-    rcon = game.ensure_game(g)
-    rcon.send(f"rlvid_kickoff_keep_focus {int(bool(cfg.raw.get('camera', {}).get('kickoff_keep_focus', False)))}")
-    rcon.send(f"rlvid_hide_scoreboard {int(bool(hud and h.get('hide_game_scoreboard', False)))}")
+    hud = start_hud(int(h.get("port", 8765))) if h.get("enabled", True) else None
+    try:
+        if hud:
+            # The broadcast overlay (scoreboard, players, stats, intro) replaces the names overlay.
+            recorder.setup_overlay(h.get("source", "RLVid HUD"), hud_url(hud, h))
+            recorder.hide_source(ov.get("source", "RLVid Names"))
+        elif ov.get("enabled", True):
+            recorder.setup_overlay(ov["source"], overlay.url(ov))
+        rcon = game.ensure_game(g)
+        rcon.send(f"rlvid_kickoff_keep_focus {int(bool(cfg.raw.get('camera', {}).get('kickoff_keep_focus', False)))}")
+        rcon.send(f"rlvid_hide_scoreboard {int(bool(hud and h.get('hide_game_scoreboard', False)))}")
+    except BaseException:  # e.g. the game did not start: don't leave the HUD server running
+        if hud:
+            hud.stop()
+        raise
     games = []  # per-game data for the <video>.json file
     try:
         for i, (m, replay) in enumerate(zip(pair.matches, replays), 1):
@@ -150,15 +153,25 @@ def process(pair: Pair, cfg, api, history) -> bool:
             video_start = recorder.record_seconds()
             release_wall = time.time()
             game.release(rcon)
+            # Keep the last HUD reading taken during the replay: if the game ends by leaving
+            # the replay, the data read afterwards no longer has the players' final stats.
+            last_hud = {}
+
+            def remember_hud():
+                h = read_hud()
+                if h and h.get("in_replay") and h.get("players"):
+                    last_hud["data"] = h
+
             if debug:
                 print(f"  debug: recording only {debug:g}s of this game")
-                game.wait_for_end(debug)
-            elif game.wait_for_end(m.duration + buffer) == "timeout":
+                game.wait_for_end(debug, remember_hud)
+            elif game.wait_for_end(m.duration + buffer, remember_hud) == "timeout":
                 log.warning("game %d did not report its end; stopped after duration + %ds buffer", i, buffer)
             game_goals = metadata.goals(m, (read_status() or {}).get("goals", []), video_start, release_wall)
             log.info("game %d goals: %s", i, game_goals)
             # The replay is still on its last frames here, so the HUD data has the final stats.
-            stats, overtime = metadata.end_stats(m, read_hud())
+            now = read_hud()
+            stats, overtime = metadata.end_stats(m, now if now and now.get("in_replay") else last_hud.get("data"))
             log.info("game %d stats: %s overtime: %s", i, stats, overtime)
             games.append(metadata.game(i, m, overlay.sides(m, players), game_goals, video_start, stats, overtime))
             if fade_ms:  # to black after each game, including the end of the video
@@ -203,6 +216,37 @@ def process(pair: Pair, cfg, api, history) -> bool:
         })
     log.info("done: %s", final)
     game.close_game()
+    return True
+
+
+def start_hud(port: int) -> HudServer | None:
+    """The HUD server on port, or the next free one of the 9 after it; None (record
+    without the HUD) if all are taken."""
+    for p in range(port, port + 10):
+        hud = HudServer(p)
+        try:
+            hud.start()
+            if p != port:
+                log.warning("HUD port %d was busy; using %d", port, p)
+            return hud
+        except OSError:
+            continue
+    log.warning("HUD ports %d-%d are all busy; recording without the HUD", port, port + 9)
+    print(f"WARNING: ports {port}-{port + 9} are busy; recording without the HUD overlay.")
+    return None
+
+
+def enough_disk_space(cfg) -> bool:
+    """False (and a warning) if the video drive has less than [recording] min_free_gb free."""
+    import shutil
+    need = float(cfg.raw["recording"].get("min_free_gb", 20))
+    out = cfg.path("output_dir")
+    out.mkdir(parents=True, exist_ok=True)
+    free = shutil.disk_usage(out).free / 2**30
+    if free < need:
+        log.warning("only %.1f GB free on %s (need %g GB); not recording", free, out.anchor, need)
+        print(f"WARNING: only {free:.1f} GB free on {out.anchor} (need {need:g} GB); not recording.")
+        return False
     return True
 
 
@@ -259,7 +303,7 @@ def players_for(cfg) -> list[Player]:
 
 
 def find_pairs_for(cfg, api, history) -> list[Pair]:
-    matches = find_unseen(api, cfg, history.ids(), players_for(cfg))
+    matches = find_unseen(api, cfg, history.ids(), players_for(cfg), history.fingerprints())
     return find_pairs(matches, cfg.raw["pairs"]["max_gap_days"])
 
 
@@ -299,6 +343,8 @@ def cmd_pick(cfg, api, history) -> int:
 
 
 def cmd_auto(cfg, api, history) -> int:
+    if not enough_disk_space(cfg):
+        return 1
     print(f"Searching ballchasing for {len(players_for(cfg))} players ...")
     cands = player_candidates(cfg, api, history)
     chosen = schedule.choose(cands)

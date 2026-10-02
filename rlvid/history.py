@@ -17,6 +17,17 @@ class History:
         self.entries.append(entry)
         self._save()
 
+    def fingerprints(self) -> set[tuple]:
+        """(game date, players, score) of recorded games, to spot the same game uploaded
+        to ballchasing again under a new id (see Match.fingerprint_key)."""
+        out = set()
+        for e in self.entries:
+            players = e.get("players") or {}
+            if e.get("game_date") and e.get("score"):
+                names = players.get("blue", []) + players.get("orange", [])
+                out.add((e["game_date"], tuple(sorted(n.lower() for n in names)), e["score"]))
+        return out
+
     def for_video(self, video: str) -> list[dict]:
         return [e for e in self.entries if e.get("video") == video]
 

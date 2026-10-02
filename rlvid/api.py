@@ -14,6 +14,21 @@ import requests
 log = logging.getLogger(__name__)
 
 
+def retry_after(value: str | None) -> int:
+    """Seconds from a Retry-After header: a number, or an HTTP date (then the time until it).
+    0 if missing or unreadable, so the normal back-off applies."""
+    if not value:
+        return 0
+    if value.strip().isdigit():
+        return int(value)
+    try:
+        from email.utils import parsedate_to_datetime
+        from datetime import datetime, timezone
+        return max(0, int((parsedate_to_datetime(value) - datetime.now(timezone.utc)).total_seconds()))
+    except (TypeError, ValueError):
+        return 0
+
+
 class ApiError(Exception):
     pass
 
@@ -41,7 +56,7 @@ class Ballchasing:
                 time.sleep(5 * attempt)
                 continue
             if r.status_code == 429:
-                backoff = max(int(r.headers.get("Retry-After") or 0), 2 * attempt)
+                backoff = max(retry_after(r.headers.get("Retry-After")), 2 * attempt)
                 log.warning("rate limited by ballchasing, sleeping %ds", backoff)
                 time.sleep(backoff)
                 continue

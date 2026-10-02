@@ -26,8 +26,7 @@ class Config:
         value = self.raw["paths"][key]
         if key == "demos_dir" and value == "auto":
             return documents_dir() / "My Games" / "Rocket League" / "TAGame" / "Demos"
-        p = Path(os.path.expandvars(value))
-        return p if p.is_absolute() else ROOT / p
+        return project_path(value)
 
     @property
     def search(self) -> dict:
@@ -36,6 +35,13 @@ class Config:
     @property
     def api(self) -> dict:
         return self.raw["api"]
+
+
+def project_path(value: str) -> Path:
+    """A path from the config: environment variables expanded, relative paths under the
+    project folder (not the current folder, which is System32 under Task Scheduler)."""
+    p = Path(os.path.expandvars(value))
+    return p if p.is_absolute() else ROOT / p
 
 
 def documents_dir() -> Path:

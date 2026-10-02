@@ -107,6 +107,11 @@ class DescribeTest(unittest.TestCase):
         d["games"][0]["goals"] = [b, b, o, o, o, o]              # only 0-2 down
         self.assertEqual(describe.facts(d)["comebacks"], 0)
 
+    def test_fastest_unknown_without_a_goal(self):
+        f = describe.facts(data())  # no goals by the target
+        self.assertIsNone(f["fastest"])
+        self.assertFalse(describe.eligible("{PLAYER} hits {FASTEST} KPH", f))
+
     def test_lost_both_never_gets_a_win_title(self):
         d = data()
         for g in d["games"]:  # Atow's team loses both
@@ -201,6 +206,12 @@ class UploadFlowTest(unittest.TestCase):
         v = self.video("a")
         with mock.patch.object(youtube, "upload", return_value="VID"), \
                 mock.patch.object(youtube, "set_thumbnail", side_effect=youtube.YouTubeError("not verified")):
+            self.assertEqual(uploader.upload_one(object(), v, {}, self.history), "VID")
+        self.assertFalse(v.exists())
+
+    def test_thumbnail_quota_error_still_deletes_the_video(self):
+        v = self.video("a")
+        with mock.patch.object(youtube, "upload", return_value="VID"),                 mock.patch.object(youtube, "set_thumbnail", side_effect=youtube.QuotaError("quota")):
             self.assertEqual(uploader.upload_one(object(), v, {}, self.history), "VID")
         self.assertFalse(v.exists())
 

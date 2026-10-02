@@ -101,6 +101,22 @@ python thumbnails.py "<video>.mp4"   # remake a video's thumbnail candidates
 - **Logs:** each run writes a log file to `logs/`.
 - **Failures:** a failed run (API, game, OBS) is logged and nothing is marked as done. A partial recording is left in the OBS recording folder.
 
+## Running it every day (Task Scheduler)
+
+`daily.py` records one video and uploads everything waiting. To run it every day:
+
+1. Open **Task Scheduler** and choose **Create Task…** (not "Create Basic Task").
+2. **General:** name it (e.g. `RL daily video`) and select **Run only when user is logged on**. Rocket League and OBS need your desktop: with "Run whether user is logged on or not" they start invisibly and the recording is black.
+3. **Triggers → New…:** Daily, at a time the PC is on and you're not using it.
+4. **Actions → New…:** Start a program.
+   - **Program/script:** `C:\Python312\python.exe`
+   - **Add arguments:** `daily.py`
+   - **Start in:** `C:\Users\luisr\Projects\rocket-league-youtube`
+5. **Conditions:** untick **Start the task only if the computer is on AC power** (on a laptop).
+6. **Settings:** tick **Stop the task if it runs longer than** 2 hours, and keep **If the task is already running: Do not start a new instance**.
+
+Each run writes a log to `logs/`. A day without a video is normal when there are no new games, when the disk has less than `min_free_gb` free, or when something failed (the log says which); videos that failed to upload are retried the next day. Keep the PC from going to sleep around that time, and preferably unlocked: a locked screen may also stop the game from being captured.
+
 ## Rate limits
 
 Regular ballchasing accounts can call the replay list 2 times per second and 500 times per hour, and download files 1 per second and 200 per hour. The tool makes one list call per player, waits `min_delay_seconds` (1 s by default) between calls, and backs off when ballchasing returns HTTP 429.

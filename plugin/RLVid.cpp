@@ -69,8 +69,8 @@ private:
     bool holdAtStart_ = false;   // pause on the first frame until rlvid_release
     float kickoffSeconds_ = 0;   // >0: Director camera on kickoffs until this long after the first touch
     bool inKickoff_ = false;
-    bool kickoffKeepFocus_ = false;
-    bool hideScoreboard_ = false;    // rlvid_hide_scoreboard 1: the game's match info (scoreboard) off  // rlvid_kickoff_keep_focus 1: keep the target focused during the kickoff Director
+    bool kickoffKeepFocus_ = false;  // rlvid_kickoff_keep_focus 1: keep the target focused during the kickoff Director
+    bool hideScoreboard_ = false;    // rlvid_hide_scoreboard 1: the game's match info (scoreboard) off
     bool wasKickoff_ = false;
     int releaseFrame_ = -1;
     int settleTicks_ = 0;        // >0: just switched to Player View; check the car actually shown each tick
@@ -666,7 +666,8 @@ void RLVid::WriteStatus()
     for (size_t i = 0; i < goals_.size(); ++i) {
         auto& g = goals_[i];
         goals << (i ? ", " : "") << "{\"frame\": " << g.frame << ", \"elapsed\": " << g.elapsed
-              << ", \"wall\": " << std::fixed << std::setprecision(3) << g.wall << std::defaultfloat
+              << ", \"wall\": " << std::fixed << std::setprecision(3) << g.wall
+              << std::defaultfloat << std::setprecision(6)  // back to normal for the fields after it
               << ", \"team\": " << g.team << ", \"scorer\": \"" << JsonEscape(g.scorer)
               << "\", \"scorer_id\": \"" << JsonEscape(g.scorerId) << "\", \"speed\": " << g.speed << "}";
     }

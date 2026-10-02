@@ -186,7 +186,7 @@ def release(rcon: Rcon) -> None:
     _wait(lambda s: s["in_replay"] and not s.get("paused"), 10, "replay to resume")
 
 
-def wait_for_end(max_seconds: float) -> str:
+def wait_for_end(max_seconds: float, on_tick=None) -> str:
     """Block until the replay finishes. Returns why it stopped: 'ended' or 'timeout'.
 
     An unreadable status file (the plugin replaces it twice a second) is treated
@@ -198,6 +198,8 @@ def wait_for_end(max_seconds: float) -> str:
     last_fresh = time.monotonic()
     while time.monotonic() < deadline:
         time.sleep(0.5)
+        if on_tick:
+            on_tick()
         if bring_to_front(only_if_minimized=True):
             log.warning("the game window was minimized during recording (black video); restored it")
             print("  The game window was minimized; restored it (that part of the video may be black).")

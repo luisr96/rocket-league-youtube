@@ -84,10 +84,11 @@ def load_cache(path: Path) -> tuple[list[Entry], float]:
         return [], 0.0
 
 
-def save_cache(path: Path, entries: list[Entry]) -> None:
+def save_cache(path: Path, entries: list[Entry], fetched: float | None = None) -> None:
+    """Save the entries; fetched = when they were (last) checked, now by default."""
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"fetched": time.time(), "entries": [asdict(e) for e in entries]},
-                              indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.write_text(json.dumps({"fetched": time.time() if fetched is None else fetched,
+                               "entries": [asdict(e) for e in entries]}, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(path)
 
 
@@ -99,14 +100,17 @@ def get(settings: dict, cache: Path, now: float | None = None) -> list[Entry]:
     now = time.time() if now is None else now
     cached, fetched = load_cache(cache)
     top = int(settings.get("top", 100))
-    if cached and now - fetched < float(settings.get("refresh_hours", 24)) * 3600:
-        return cached[:top]
+    if fetched and now - fetched < float(settings.get("refresh_hours", 24)) * 3600:
+        return cached[:top]  # checked recently (even if that check failed and there is no list)
     try:
         entries = fetch(settings.get("url", DEFAULT_URL), settings.get("playlist", "doubles"))
         save_cache(cache, entries)
         log.info("leaderboard: downloaded %d players", len(entries))
         return entries[:top]
     except LeaderboardError as e:
+        # Count a failed attempt as a check too, so a broken page is retried at most
+        # once per refresh_hours instead of on every run.
+        save_cache(cache, cached, fetched=now)
         if cached:
             log.warning("leaderboard: %s; using the list saved %.0f hours ago", e, (now - fetched) / 3600)
             print(f"WARNING: could not update the leaderboard ({e}); using the saved list.")
