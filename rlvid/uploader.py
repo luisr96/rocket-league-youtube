@@ -10,7 +10,7 @@ import logging
 from datetime import date
 from pathlib import Path
 
-from . import describe, youtube
+from . import describe, thumbnail, youtube
 from .config import project_path
 
 log = logging.getLogger(__name__)
@@ -28,10 +28,11 @@ def pending(out_dir: Path, history) -> list[Path]:
     return out
 
 
-def thumbnail_for(video: Path, choice: str) -> Path | None:
-    """The chosen thumbnail candidate, else any candidate (e.g. the no-goal one)."""
+def thumbnail_for(video: Path, data: dict) -> Path | None:
+    """The chosen goal's thumbnail (see thumbnail.choose_goal), else any candidate (e.g. the no-goal one)."""
+    choice = thumbnail.default_label(data)
     preferred = video.with_name(f"{video.stem}_thumb_{choice}.jpg")
-    if preferred.exists():
+    if choice and preferred.exists():
         return preferred
     others = sorted(video.parent.glob(f"{video.stem}_thumb_*.jpg"))
     return others[0] if others else None
@@ -56,7 +57,7 @@ def upload_one(yt, video: Path, settings: dict, history) -> str:
     history.update_video(str(video), {"youtube_id": vid, "youtube_url": url, "youtube_title": title,
                                       "uploaded_date": date.today().isoformat()})
 
-    thumb = thumbnail_for(video, settings.get("thumbnail", "1s-before"))
+    thumb = thumbnail_for(video, data)
     if thumb:
         try:
             youtube.set_thumbnail(yt, vid, thumb)

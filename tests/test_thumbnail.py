@@ -16,6 +16,19 @@ def data(game1: list[dict], game2: list[dict]) -> dict:
     return {"games": [dict(game, goals=game1), dict(game, goals=game2)]}
 
 
+class GoalShotsTest(unittest.TestCase):
+    def test_one_shot_per_goal_in_every_game(self):
+        d = data([g(10, "target", 80), g(20, "opponent", 120)], [g(400, "teammate", 90)])
+        self.assertEqual(thumbnail.goal_shots(d), [("g1-goal01", 9.0), ("g1-goal02", 19.0), ("g2-goal01", 399.0)])
+        self.assertEqual(thumbnail.goal_shots(d, 0.4)[0], ("g1-goal01", 10.4))
+        self.assertEqual(thumbnail.goal_shots({"games": []}), [])
+
+    def test_default_label_is_the_chosen_goal(self):
+        d = data([g(10, "target", 80), g(20, "target", 120)], [])
+        self.assertEqual(thumbnail.default_label(d), "g1-goal02")
+        self.assertIsNone(thumbnail.default_label(data([g(20, "opponent", 150)], [])))
+
+
 class ChooseGoalTest(unittest.TestCase):
     def test_targets_fastest_goal_in_game_1(self):
         goal, why = thumbnail.choose_goal(data([g(10, "target", 80), g(20, "target", 120), g(30, "teammate", 150)],
@@ -50,7 +63,7 @@ class PageUrlTest(unittest.TestCase):
     def test_defaults_and_settings(self):
         q = self.q({})
         self.assertEqual((q["layout"], q["teams"], q["pop"], q["sat"], q["con"], q["zoom"]),
-                         (["corner"], ["0"], ["1"], ["1.7"], ["1.25"], ["0"]))  # zoom is done by ffmpeg
+                         (["corner"], ["0"], ["1"], ["1.1"], ["1.08"], ["0"]))  # zoom is done by ffmpeg
         q = self.q({"big_name": False, "colours": False, "team_names": True, "layout": "center",
                     "saturation": 2.0, "names_position": "top"})
         self.assertNotIn("big", q)  # empty value

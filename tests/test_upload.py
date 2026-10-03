@@ -181,9 +181,14 @@ class UploadFlowTest(unittest.TestCase):
         self.assertEqual(uploader.pending(self.dir, self.history), [a, b])
 
     def test_thumbnail_choice_and_fallback(self):
-        v = self.video("a", thumbs=("5s-after",))
-        self.assertEqual(uploader.thumbnail_for(v, "1s-before").name, "a_thumb_5s-after.jpg")
-        self.assertIsNone(uploader.thumbnail_for(self.video("b", thumbs=()), "1s-before"))
+        d = data()
+        d["games"][0]["goals"] = [{"by": "target", "speed": 90, "video_time": 10},
+                                  {"by": "target", "speed": 120, "video_time": 30}]
+        v = self.video("a", thumbs=("g1-goal01", "g1-goal02"))
+        self.assertEqual(uploader.thumbnail_for(v, d).name, "a_thumb_g1-goal02.jpg")  # fastest
+        v = self.video("b", thumbs=("no-goal",))
+        self.assertEqual(uploader.thumbnail_for(v, d).name, "b_thumb_no-goal.jpg")
+        self.assertIsNone(uploader.thumbnail_for(self.video("c", thumbs=()), d))
 
     def test_upload_records_id_deletes_video_keeps_thumbnails(self):
         v = self.video("a")

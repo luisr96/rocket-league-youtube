@@ -32,7 +32,7 @@ flowchart LR
 1. **Find players and games.** I fetch an online leaderboard of the top 100 players, and pull one of their games randomly from [ballchasing.com](https://ballchasing.com).
 2. **Play the replays in the real game.** A custom C++ BakkesMod plugin loads each `.replay` file into Rocket League and does the camera work. It holds the first frame until recording starts, and reads the live game data from the playback (score, clock, boost, stats, goals) 30 times a second.
 3. **Record a broadcast.** OBS is driven over its WebSocket API. An HTML/CSS/JS overlay, fed by a small local web server, draws a scoreboard, player boost bars and a stats bar, plus an intro banner listing all players at the start of each game. The two games are joined with fades to black, and the loading screen in between is cut.
-4. **Make thumbnails.** Frames are taken just before and after the featured player's fastest goal, then the player's name and rank emblem are composited on with a headless browser.
+4. **Make thumbnails.** A frame is taken just before every goal, then the player's name and rank emblem are composited on with a headless browser.
 5. **Write the title.** The YouTube title is created with pattern-matching, based on what happened in the games e.g. `[wins=2]`, `[goals>=4]`, `[comebacks>=1]`
 6. **Upload and clean up.** The video is uploaded through the YouTube Data API (OAuth) along with its thumbnail. The large video file is then deleted.
 7. **Choose who's next.** Each player's priority is _weight × days since their last video_, so over time popular players appear more often but every player has a chance. There's a history file so the same game doesn't get posted twice. There's also a cooldown so nobody appears two days in a row.

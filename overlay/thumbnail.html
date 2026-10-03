@@ -10,9 +10,9 @@
     size=70          team names font size in px (long names shrink to fit)
     pos=bottom       team names at the bottom, middle or top (the large name goes opposite)
     zoom=1           crop to the middle 70% of the frame
-    pop=1            more saturation/contrast and darker edges
-    sat=1.35         saturation when pop=1 (1 = unchanged)
-    con=1.12         contrast when pop=1
+    pop=1            light YouTube-style grade: sat/con, a little brighter and warmer, soft dark edges
+    sat=1.1          saturation when pop=1 (1 = unchanged)
+    con=1.08         contrast when pop=1
     layout=center    large name centred (opposite the team names), or "corner": top left
     teams=1          show the team names (0 = large name only)
     icon=<file URL>  emblem (e.g. the rank icon) in the top-right corner; in the corner layout its
@@ -28,7 +28,7 @@
            font-family: "Segoe UI Black", "Segoe UI", Arial, sans-serif; font-weight: 900; }
   #bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   #vignette { position: absolute; inset: 0; display: none;
-              background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55) 100%); }
+              background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,.35) 100%); }
   #teams { position: absolute; left: 0; right: 0; display: flex; }
   .half { width: 50%; box-sizing: border-box; padding: 0 40px;
           display: flex; flex-direction: column; align-items: center; justify-content: center; }
@@ -60,8 +60,8 @@
   bg.src = q.get("bg") || "";
   if (q.get("zoom") === "1") bg.style.transform = "scale(1.43)";
   if (q.get("pop") === "1") {
-    const sat = parseFloat(q.get("sat")) || 1.35, con = parseFloat(q.get("con")) || 1.12;
-    bg.style.filter = `saturate(${sat}) contrast(${con}) brightness(1.03)`;
+    const sat = parseFloat(q.get("sat")) || 1.1, con = parseFloat(q.get("con")) || 1.08;
+    bg.style.filter = `brightness(1.06) contrast(${con}) saturate(${sat}) sepia(0.06)`;  // sepia: slight warmth
     document.getElementById("vignette").style.display = "block";
   }
 

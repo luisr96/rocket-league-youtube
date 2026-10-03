@@ -112,12 +112,13 @@ hide_game_scoreboard = false
 intro_seconds = 4             # how long the intro stays up
 
 [thumbnail]
-# YouTube thumbnail candidates (1280x720 JPG) saved next to each video, taken
-# around the target's fastest goal in game 1 (else a teammate's goal in game 1,
-# else the target's goal in game 2): 1 s, 0.5 s and 0.1 s before it, 0.4 s
-# after it (explosion) and 5 s after it (close-up). Remake them for an existing
-# video with: python thumbnails.py "<video>.mp4"
+# YouTube thumbnail candidates (1280x720 JPG) saved next to each video: one per
+# goal in every game (<video>_thumb_g1-goal03.jpg = game 1, 3rd goal). The upload
+# sets the target's fastest goal in game 1 (else a teammate's goal in game 1, else
+# the target's goal in game 2); pick a better one in YouTube Studio. Remake them
+# for an existing video with: python thumbnails.py "<video>.mp4"
 enabled = true
+goal_offset = -0.2        # seconds from each goal for its frame (-1 = 1 s before, 0.4 = explosion)
 big_name = true           # the target player's name in large letters
 layout = "corner"         # corner: name top left (rank emblem top right); center: name centred at the top
 rank_icon = true          # rank emblem top right, from overlay/rank_<rank>.png (e.g. rank_supersonic-legend.png)
@@ -126,9 +127,9 @@ names_size = 70           # team names, px (long names shrink to fit)
 names_position = "bottom" # team names at the bottom, middle or top
 zoom = true               # crop to the middle 70% of the frame
 sharpen = true
-colours = true            # stronger colours (below) and darker edges
-saturation = 1.7          # 1 = unchanged
-contrast = 1.25           # 1 = unchanged
+colours = true            # light YouTube-style grade: colours below, a little brighter and warmer, soft dark edges
+saturation = 1.1          # 1 = unchanged
+contrast = 1.08           # 1 = unchanged
 # edge = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'   # if Edge isn't found
 
 [youtube]
@@ -140,7 +141,6 @@ privacy = "private"           # private until the API project passes Google's au
 category_id = "20"            # Gaming
 titles_file = "titles.txt"    # title patterns, one per line; one is picked at random per video
 special_title_weight = 3      # a fitting title with [conditions] is this many times as likely as a general one
-thumbnail = "1s-before"       # 1s-before, 0.5s-before, 0.1s-before, 0.4s-after or 5s-after
 delete_after_upload = true    # delete the video and its data file after upload (thumbnails are kept)
 
 [game]
