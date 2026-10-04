@@ -267,9 +267,8 @@ def read_hud() -> dict | None:
 
 def hud_url(hud: HudServer, h: dict) -> str:
     from urllib.parse import urlencode
-    q = {"style": h.get("style", "neon"), "brand": h.get("brand", "Like, comment & subscribe!"),
-         "alpha": h.get("alpha", 2.0), "scale": h.get("scale", 1.0), "top": h.get("top", 0),
-         "brandpos": h.get("brand_position", "strip"), "sep": h.get("separator", "pill"), "hold": h.get("intro_seconds", 4)}
+    q = {"brand": h.get("brand", "Like, comment & subscribe!"), "scale": h.get("scale", 1.0), "top": h.get("top", 0),
+         "meter": h.get("meter", "off"), "hold": h.get("intro_seconds", 4)}
     return hud.url + "?" + urlencode(q)
 
 
